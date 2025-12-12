@@ -167,3 +167,9 @@ The system accepts user stories in JSON or CSV format from ADO as well as input.
 - **Test Results**: Pass/fail summary with coverage
 - **Checkpoints**: Create and rollback to saved states
 
+<a href="https://drive.google.com/file/d/1T_E4Goz0NnWcxS2c-uEcEWomsWYBLhBm/view?usp=share_link" target="_blank">
+  <img src="image.png" width="300" height="500" style="object-fit: cover; border-radius: 8px; margin: 4px;">
+</a>
+
+
+
