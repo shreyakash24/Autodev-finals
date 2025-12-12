@@ -1,0 +1,2315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Code Generator - Dashboard</title>
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #0f3460;
+            --accent: #e94560;
+            --accent-light: #ff6b6b;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0a0;
+            --success: #4ade80;
+            --warning: #fbbf24;
+            --error: #ef4444;
+            --info: #3b82f6;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        
+        /* Header */
+        header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .logo h1 {
+            font-size: 1.5rem;
+            background: linear-gradient(90deg, var(--accent), var(--accent-light));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        /* Main Layout */
+        .container {
+            display: grid;
+            grid-template-columns: 300px 1fr 350px;
+            gap: 1rem;
+            padding: 1rem;
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+        
+        /* Sidebar */
+        .sidebar {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1rem;
+            height: calc(100vh - 100px);
+            overflow-y: auto;
+        }
+        
+        .sidebar h2 {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            letter-spacing: 1px;
+        }
+        
+        /* Agent List */
+        .agent-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        
+        .agent-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .agent-item:hover {
+            background: rgba(255,255,255,0.1);
+            transform: translateX(5px);
+        }
+        
+        .agent-item.active {
+            background: var(--bg-card);
+            border-left: 3px solid var(--accent);
+        }
+        
+        .agent-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+        
+        .agent-info h3 {
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        
+        .agent-info span {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        
+        /* Main Content */
+        .main-content {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        
+        /* Cards */
+        .card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.25rem;
+        }
+        
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .card-header h2 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+        }
+        
+        .stat-card {
+            background: var(--bg-card);
+            border-radius: 10px;
+            padding: 1rem;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+        
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        
+        .stat-card.success .stat-value { color: var(--success); }
+        .stat-card.warning .stat-value { color: var(--warning); }
+        .stat-card.error .stat-value { color: var(--error); }
+        .stat-card.info .stat-value { color: var(--info); }
+        
+        /* Task List */
+        .task-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .task-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            border-left: 3px solid transparent;
+        }
+        
+        .task-item.completed { border-left-color: var(--success); }
+        .task-item.in-progress { border-left-color: var(--info); }
+        .task-item.failed { border-left-color: var(--error); }
+        .task-item.pending { border-left-color: var(--text-secondary); }
+        
+        .task-status {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+        }
+        
+        .task-status.completed { background: var(--success); }
+        .task-status.in-progress { background: var(--info); }
+        .task-status.failed { background: var(--error); }
+        .task-status.pending { background: var(--text-secondary); }
+        
+        .task-info {
+            flex: 1;
+        }
+        
+        .task-info h4 {
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        
+        .task-info span {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        
+        .task-actions button {
+            background: rgba(255,255,255,0.1);
+            border: none;
+            padding: 0.4rem 0.75rem;
+            border-radius: 4px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: background 0.2s;
+        }
+        
+        .task-actions button:hover {
+            background: var(--accent);
+        }
+        
+        /* Progress Bar */
+        .progress-container {
+            margin-top: 1rem;
+        }
+        
+        .progress-bar {
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--accent-light));
+            transition: width 0.3s ease;
+        }
+        
+        .progress-text {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        
+        /* Event Panel */
+        .event-panel {
+            height: calc(100vh - 100px);
+            overflow-y: auto;
+        }
+        
+        .event-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        
+        .event-item {
+            padding: 0.75rem;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+        
+        .event-item .timestamp {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+        
+        .event-item.success { border-left: 3px solid var(--success); }
+        .event-item.error { border-left: 3px solid var(--error); }
+        .event-item.info { border-left: 3px solid var(--info); }
+        
+        /* Input Area */
+        .input-area {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-top: auto;
+        }
+        
+        .input-area textarea {
+            width: 100%;
+            background: var(--bg-card);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.9rem;
+            resize: vertical;
+            min-height: 100px;
+        }
+        
+        .input-area textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        .input-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+        
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: var(--accent-light);
+        }
+        
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: var(--text-primary);
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #22c55e;
+        }
+        
+        /* Code Display */
+        .code-display {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .code-display pre {
+            margin: 0;
+            white-space: pre-wrap;
+        }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .tab {
+            padding: 0.5rem 1rem;
+            background: rgba(255,255,255,0.05);
+            border: none;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .tab:hover, .tab.active {
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-overlay.active {
+            display: flex;
+        }
+        
+        .modal {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+        
+        .footer-tagline {
+            margin-top: 1rem;
+            font-size: 0.65rem;
+        }
+        
+        /* Footer */
+        footer {
+            background: var(--bg-secondary);
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding: 2rem;
+            margin-top: 2rem;
+            text-align: center;
+        }
+        
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            text-align: left;
+        }
+        
+        .footer-section h3 {
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+            color: var(--accent);
+        }
+        
+        .footer-section p {
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+        
+        .footer-section ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .footer-section ul li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .footer-section a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        
+        .footer-section a:hover {
+            color: var(--accent);
+        }
+        
+        .footer-bottom {
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+        }
+        
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .footer-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        
+        .footer-links a:hover {
+            color: var(--accent);
+        }
+        
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+            
+            .sidebar, .event-panel {
+                height: auto;
+                max-height: 400px;
+            }
+            
+            .footer-content {
+                grid-template-columns: 1fr;
+                text-align: center;
+            }
+            
+            .footer-section ul {
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">
+            <h1>🤖 Azure CodeAgents</h1>
+        </div>
+        <div class="status-indicator">
+            <div class="status-dot" id="connectionStatus"></div>
+            <span id="connectionText">Connected</span>
+        </div>
+    </header>
+    
+    <div class="container">
+        <!-- Sidebar: Agent List -->
+        <aside class="sidebar">
+            <h2>🔧 Agents</h2>
+            <div class="agent-list" id="agentList">
+                <div class="agent-item active" data-agent="orchestrator">
+                    <div class="agent-icon" style="background: #3b82f6;">🎯</div>
+                    <div class="agent-info">
+                        <h3>Orchestrator</h3>
+                        <span>Pipeline Coordinator</span>
+                    </div>
+                </div>
+                <div class="agent-item" data-agent="ado_connector">
+                    <div class="agent-icon" style="background: #8b5cf6;">📋</div>
+                    <div class="agent-info">
+                        <h3>ADO Connector</h3>
+                        <span>Requirements Parser</span>
+                    </div>
+                </div>
+                <div class="agent-item" data-agent="frontend_coder">
+                    <div class="agent-icon" style="background: #06b6d4;">⚛️</div>
+                    <div class="agent-info">
+                        <h3>Frontend Coder</h3>
+                        <span>React Components</span>
+                    </div>
+                </div>
+                <div class="agent-item" data-agent="backend_coder">
+                    <div class="agent-icon" style="background: #10b981;">🔌</div>
+                    <div class="agent-info">
+                        <h3>Backend Coder</h3>
+                        <span>API Generation</span>
+                    </div>
+                </div>
+                <div class="agent-item" data-agent="database_coder">
+                    <div class="agent-icon" style="background: #f59e0b;">🗄️</div>
+                    <div class="agent-info">
+                        <h3>Database Coder</h3>
+                        <span>Schema & Migrations</span>
+                    </div>
+                </div>
+                <div class="agent-item" data-agent="testing">
+                    <div class="agent-icon" style="background: #ef4444;">🧪</div>
+                    <div class="agent-info">
+                        <h3>Testing Agent</h3>
+                        <span>Test Generation</span>
+                    </div>
+                </div>
+                <div class="agent-item" data-agent="legacy_analyzer">
+                    <div class="agent-icon" style="background: #84cc16;">🔍</div>
+                    <div class="agent-info">
+                        <h3>Legacy Analyzer</h3>
+                        <span>Code Analysis</span>
+                    </div>
+                </div>
+                <div class="agent-item" data-agent="prompt_refiner">
+                    <div class="agent-icon" style="background: #ec4899;">✨</div>
+                    <div class="agent-info">
+                        <h3>Prompt Refiner</h3>
+                        <span>Quality Enhancement</span>
+                    </div>
+                </div>
+                <div class="agent-item" data-agent="monitoring">
+                    <div class="agent-icon" style="background: #6366f1;">📊</div>
+                    <div class="agent-info">
+                        <h3>Monitor</h3>
+                        <span>Status & Logs</span>
+                    </div>
+                </div>
+            </div>
+            
+            <h2 style="margin-top: 1.5rem;">🔖 Checkpoints</h2>
+            <div id="checkpointList" class="agent-list">
+                <div class="agent-item" onclick="createCheckpoint()">
+                    <div class="agent-icon" style="background: var(--accent);">➕</div>
+                    <div class="agent-info">
+                        <h3>Create Checkpoint</h3>
+                        <span>Save current state</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Stats -->
+            <div class="stats-grid">
+                <div class="stat-card info">
+                    <div class="stat-value" id="totalTasks">0</div>
+                    <div class="stat-label">Total Tasks</div>
+                </div>
+                <div class="stat-card success">
+                    <div class="stat-value" id="completedTasks">0</div>
+                    <div class="stat-label">Completed</div>
+                </div>
+                <div class="stat-card warning">
+                    <div class="stat-value" id="pendingTasks">0</div>
+                    <div class="stat-label">Pending</div>
+                </div>
+                <div class="stat-card error">
+                    <div class="stat-value" id="failedTasks">0</div>
+                    <div class="stat-label">Failed</div>
+                </div>
+            </div>
+            
+            <!-- Pipeline Progress -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>📈 Pipeline Progress</h2>
+                    <span id="pipelineStatus">No Active Pipeline</span>
+                </div>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="progressText">0%</span>
+                        <span id="progressEta">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Task List -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>📋 Tasks</h2>
+                    <div class="tabs">
+                        <button type="button" class="tab active" onclick="filterTasks('all')">All</button>
+                        <button type="button" class="tab" onclick="filterTasks('in_progress')">Running</button>
+                        <button type="button" class="tab" onclick="filterTasks('pending')">Pending</button>
+                        <button type="button" class="tab" onclick="filterTasks('completed')">Completed</button>
+                    </div>
+                </div>
+                <div class="task-list" id="taskList">
+                    <div class="task-item pending">
+                        <div class="task-status pending">⏳</div>
+                        <div class="task-info">
+                            <h4>No tasks yet</h4>
+                            <span>Create a pipeline to see tasks</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Code/Artifacts Display -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>📄 Generated Code & Artifacts</h2>
+                    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                        <span id="artifactCount">0 files</span>
+                        <button type="button" class="btn btn-success" onclick="exportAllArtifacts()" 
+                                id="exportAllBtn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: none;">
+                            📦 Export Code
+                        </button>
+                        <button type="button" class="btn btn-info" onclick="exportAllArtifactsWithDocs()" 
+                                id="exportWithDocsBtn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: none;">
+                            📚 Export with Docs
+                        </button>
+                    </div>
+                </div>
+                <div class="tabs" id="artifactTabs"></div>
+                <div class="code-display" id="codeDisplay">
+                    <pre>// Select an artifact to view its content</pre>
+                </div>
+            </div>
+            
+            <!-- Automated Pipeline Section -->
+            <div class="card" id="autoPipelineCard" style="border: 2px solid var(--primary); background: linear-gradient(135deg, var(--bg-card) 0%, rgba(99, 102, 241, 0.05) 100%);">
+                <div class="card-header">
+                    <h2>⚡ Automated Pipeline Execution</h2>
+                    <span style="font-size: 0.85rem; color: var(--text-secondary);">Complete end-to-end automation</span>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <p style="margin-bottom: 1rem; color: var(--text-secondary); line-height: 1.6;">
+                        This will run the complete automated pipeline:
+                        <strong>Legacy Analysis</strong> → <strong>Prompt Refinement</strong> → 
+                        <strong>Code Generation</strong> → <strong>Testing</strong>
+                    </p>
+                    <div style="display: flex; gap: 0.75rem; align-items: center;">
+                        <button type="button" class="btn btn-primary" onclick="runAutomatedPipeline()" 
+                                style="flex: 1; padding: 0.75rem; font-size: 1rem; font-weight: 600;">
+                            ⚡ Run Automated Pipeline
+                        </button>
+                        <span id="autoPipelineStatus" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
+                    </div>
+                    <div id="autoPipelineResult" style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px; display: none;">
+                        <h4 style="margin: 0 0 0.5rem 0; color: var(--success);">✓ Pipeline Execution Complete</h4>
+                        <div id="autoPipelineDetails"></div>
+                        <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                            <button type="button" class="btn btn-success" onclick="exportCompletePipeline()" 
+                                    style="padding: 0.5rem 1rem; font-size: 0.9rem;">
+                                📦 Export Complete Pipeline Output
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Azure DevOps Connection Section -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>📊 Azure DevOps Connection</h2>
+                    <button type="button" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" onclick="toggleAdoPanel()">
+                        <span id="adoToggleIcon">▼</span> Toggle
+                    </button>
+                </div>
+                <div id="adoConnectionPanel" style="display: none; margin-top: 1rem;">
+                    <div style="display: grid; gap: 0.75rem;">
+                        <div>
+                            <label style="display: block; margin-bottom: 0.25rem; font-size: 0.9rem; color: var(--text-secondary);">Organization URL</label>
+                            <input type="text" id="adoOrgUrl" placeholder="https://dev.azure.com/your-org" 
+                                   style="width: 100%; background: var(--bg-card); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.6rem; color: var(--text-primary); font-family: inherit;"
+                                   spellcheck="false" />
+                            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                                Example: https://dev.azure.com/your-organization
+                            </div>
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 0.25rem; font-size: 0.9rem; color: var(--text-secondary);">Personal Access Token (PAT)</label>
+                            <input type="password" id="adoPat" placeholder="Your PAT with Work Items (Read) permission" 
+                                   style="width: 100%; background: var(--bg-card); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.6rem; color: var(--text-primary); font-family: inherit;"
+                                   spellcheck="false" />
+                            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                                Required permissions: Work Items (Read)
+                            </div>
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 0.25rem; font-size: 0.9rem; color: var(--text-secondary);">Project Name</label>
+                            <input type="text" id="adoProject" placeholder="Your project name" 
+                                   style="width: 100%; background: var(--bg-card); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.6rem; color: var(--text-primary); font-family: inherit;"
+                                   spellcheck="false" />
+                            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                                Case-sensitive project name
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-primary" onclick="extractFromAdo()">🔗 Fetch Stories from Azure DevOps</button>
+                        <div>
+                            <span id="adoStatus" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Legacy Analyzer Section -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>🔍 Legacy Code Analyzer</h2>
+                    <button type="button" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" onclick="toggleLegacyAnalyzer()">
+                        <span id="legacyToggleIcon">▼</span> Toggle
+                    </button>
+                </div>
+                <div id="legacyAnalyzerPanel" style="display: none; margin-top: 1rem;">
+                    <div style="display: grid; gap: 0.75rem;">
+                        <div>
+                            <label style="display: block; margin-bottom: 0.25rem; font-size: 0.9rem; color: var(--text-secondary);">Repository Path</label>
+                            <input type="text" id="legacyRepoPath" placeholder="/path/to/legacy/repository" 
+                                   style="width: 100%; background: var(--bg-card); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.6rem; color: var(--text-primary); font-family: inherit;"
+                                   autocomplete="off" spellcheck="false">
+                            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                                Enter the absolute path to analyze an existing codebase
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-info" onclick="analyzeLegacyCode()">🔍 Analyze Repository</button>
+                        <div id="legacyAnalysisResult" style="display: none; margin-top: 0.5rem; padding: 1rem; background: var(--bg-card); border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
+                            <h4 style="margin-bottom: 0.75rem; color: var(--success);">Analysis Results</h4>
+                            <div id="legacyResultContent" style="font-size: 0.9rem; line-height: 1.6;"></div>
+                        </div>
+                        <div>
+                            <span id="legacyStatus" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+
+            <!-- Input Area -->
+            <div class="input-area">
+                <div style="margin-bottom: 0.75rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem; font-weight: 500;">Or paste your requirements directly:</label>
+                </div>
+                <textarea id="inputArea" placeholder="Paste your user stories or requirements here (JSON/CSV format)...&#10;&#10;Example JSON format:&#10;[&#10;  {&#10;    &quot;id&quot;: &quot;1&quot;,&#10;    &quot;title&quot;: &quot;User Login&quot;,&#10;    &quot;description&quot;: &quot;As a user, I want to log in...&quot;,&#10;    &quot;acceptance_criteria&quot;: [&quot;User can enter credentials&quot;, &quot;System validates credentials&quot;]&#10;  }&#10;]"></textarea>
+                <div class="input-actions">
+                    <button type="button" class="btn btn-primary" onclick="parseRequirements()">Parse Requirements</button>
+                    <button type="button" class="btn btn-secondary" onclick="createPipeline()">Create Pipeline</button>
+                    <button type="button" class="btn btn-secondary" onclick="runAllTasks()">Run All Tasks</button>
+                </div>
+            </div>
+        </main>
+        
+        <!-- Event Panel -->
+        <aside class="sidebar event-panel">
+            <h2>📢 Event Stream</h2>
+            <div class="event-list" id="eventList">
+                <div class="event-item info">
+                    <div class="timestamp">Just now</div>
+                    System initialized and ready
+                </div>
+            </div>
+            
+            <h2 style="margin-top: 1.5rem;">🧪 Test Results</h2>
+            <div id="testResults">
+                <div class="stat-card" style="margin-top: 0.5rem;">
+                    <div class="stat-value success" id="testsPassed">-</div>
+                    <div class="stat-label">Tests Passed</div>
+                </div>
+                <div class="stat-card" style="margin-top: 0.5rem;">
+                    <div class="stat-value" id="coveragePercent">-%</div>
+                    <div class="stat-label">Coverage</div>
+                </div>
+            </div>
+        </aside>
+    </div>
+    
+    <!-- Modal -->
+    <div class="modal-overlay" id="modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="modalTitle">Modal Title</h2>
+                <button type="button" class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div id="modalContent"></div>
+        </div>
+    </div>
+    
+    <!-- Footer -->
+    <footer>
+        <div class="footer-content">
+            <div class="footer-section">
+                <h3>🤖 About</h3>
+                <p>
+                    Agentic Code Generation System is a CrewAI-based multi-agent platform for automated code generation, 
+                    testing, and integration with Azure DevOps.
+                </p>
+            </div>
+            <div class="footer-section">
+                <h3>📚 Resources</h3>
+                <ul>
+                    <li><a href="https://github.com/shreyakash24/Round-2-project-AutoDev-Hackathon---IITB-Techfest-" target="_blank" rel="noopener noreferrer">📦 GitHub Repository</a></li>
+                    <li><a href="https://github.com/shreyakash24/Round-2-project-AutoDev-Hackathon---IITB-Techfest-/blob/main/README.md" target="_blank" rel="noopener noreferrer">📖 Documentation</a></li>
+                    <li><a href="https://github.com/shreyakash24/Round-2-project-AutoDev-Hackathon---IITB-Techfest-/issues" target="_blank" rel="noopener noreferrer">🐛 Report Issues</a></li>
+                </ul>
+            </div>
+            <div class="footer-section">
+                <h3>🚀 Features</h3>
+                <ul>
+                    <li>Multi-Agent Code Generation</li>
+                    <li>Azure DevOps Integration</li>
+                    <li>Automated Testing</li>
+                    <li>Legacy Code Analysis</li>
+                    <li>Real-time Monitoring</li>
+                </ul>
+            </div>
+            <div class="footer-section">
+                <h3>⚙️ Technology</h3>
+                <ul>
+                    <li>Python & Flask</li>
+                    <li>CrewAI Framework</li>
+                    <li>OpenAI GPT</li>
+                    <li>Socket.IO</li>
+                    <li>Azure DevOps API</li>
+                </ul>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <div>&copy; 2025 Azure CodeAgents | IITB Techfest - AutoDev Hackathon Round 2</div>
+            <div class="footer-links">
+                <a href="https://github.com/shreyakash24" target="_blank" rel="noopener noreferrer">👤 Developer</a>
+                <a href="https://github.com/shreyakash24/Round-2-project-AutoDev-Hackathon---IITB-Techfest-" target="_blank" rel="noopener noreferrer">⭐ Star on GitHub</a>
+                <a href="https://github.com/shreyakash24/Round-2-project-AutoDev-Hackathon---IITB-Techfest-/issues" target="_blank" rel="noopener noreferrer">🐛 Report Issue</a>
+                <a href="https://github.com/shreyakash24/Round-2-project-AutoDev-Hackathon---IITB-Techfest-/discussions" target="_blank" rel="noopener noreferrer">💬 Discussions</a>
+            </div>
+            <div class="footer-tagline">
+                Made with ❤️ by Shreya Kashikar
+            </div>
+        </div>
+    </footer>
+    
+    <script>
+        // Configuration constants
+        const AUTO_PIPELINE_DELAY_MS = 1000; // Delay before auto-creating pipeline (1 second allows users to see success message)
+        
+        // Global state (initialize first)
+        let currentSpec = null;
+        let currentPipeline = null;
+        let artifacts = [];
+        let tasks = [];
+        let events = [];
+        
+        // Initialize Socket.IO connection (with error handling)
+        let socket = null;
+        try {
+            if (typeof io !== 'undefined') {
+                socket = io();
+                
+                // Socket event handlers
+                socket.on('connect', () => {
+                    updateConnectionStatus(true);
+                    addEvent('Connected to server', 'success');
+                });
+                
+                socket.on('disconnect', () => {
+                    updateConnectionStatus(false);
+                    addEvent('Disconnected from server', 'error');
+                });
+                
+                socket.on('pipeline_event', (event) => {
+                    addEvent(formatEventMessage(event), getEventClass(event.event_type));
+                    refreshDashboard();
+                });
+                
+                socket.on('pipeline_state', (state) => {
+                    currentPipeline = state;
+                    updateDashboard(state);
+                });
+            } else {
+                console.warn('Socket.IO not loaded, real-time updates disabled');
+            }
+        } catch (e) {
+            console.error('Failed to initialize Socket.IO:', e);
+        }
+        
+        /**
+         * Safely parse JSON from a fetch Response object.
+         * Validates response status and content before parsing.
+         * 
+         * @param {Response} response - The fetch Response object to parse
+         * @returns {Promise<Object>} The parsed JSON object
+         * @throws {Error} If response is not ok, empty, or contains invalid JSON
+         * 
+         * Error messages:
+         * - "Server error: {status} {statusText}" - For non-2xx responses
+         * - "Empty response from server" - For empty response bodies
+         * - "Invalid JSON response: {error}" - For malformed JSON
+         */
+        // Track request methods for better error reporting
+        // Use LRU-style cache with max size to prevent memory leaks
+        const MAX_TRACKED_REQUESTS = 50;
+        const requestMethodTracker = new Map();
+
+        function trackRequestMethod(url, method) {
+            try {
+                // Normalize URL to just the pathname for consistent matching
+                // Handle both absolute URLs (http://...) and relative paths (/api/...)
+                const pathname = url.startsWith('http') ? new URL(url).pathname : url;
+                
+                // Add to tracker
+                requestMethodTracker.set(pathname, method);
+                
+                // Implement simple LRU: remove oldest if size exceeds limit
+                if (requestMethodTracker.size > MAX_TRACKED_REQUESTS) {
+                    const firstKey = requestMethodTracker.keys().next().value;
+                    requestMethodTracker.delete(firstKey);
+                }
+            } catch (error) {
+                // If URL parsing fails, log error but don't crash
+                console.warn('Failed to track request method:', error);
+            }
+        }
+
+        function getTrackedMethod(responseUrl) {
+            try {
+                // Normalize response URL to pathname
+                const pathname = new URL(responseUrl).pathname;
+                
+                // Exact match first
+                if (requestMethodTracker.has(pathname)) {
+                    return requestMethodTracker.get(pathname);
+                }
+            } catch (error) {
+                // If URL parsing fails, log error and return Unknown
+                console.warn('Failed to get tracked method:', error);
+            }
+            
+            // Return unknown if no match found or error occurred
+            return 'Unknown';
+        }
+
+        // Enhanced debug logging function
+        function logRequest(method, url, body = null) {
+            // Track method for later retrieval
+            trackRequestMethod(url, method);
+            
+            console.group(`🌐 HTTP Request: ${method} ${url}`);
+            console.log('Timestamp:', new Date().toISOString());
+            console.log('Method:', method);
+            console.log('URL:', url);
+            if (body) {
+                console.log('Request Body:', body);
+                try {
+                    const parsed = typeof body === 'string' ? JSON.parse(body) : body;
+                    console.log('Parsed Body:', parsed);
+                } catch (e) {
+                    console.log('(Body is not valid JSON)');
+                }
+            }
+            console.groupEnd();
+        }
+
+        function logResponse(response, text) {
+            console.group(`📨 HTTP Response: ${response.status} ${response.statusText}`);
+            console.log('Status:', response.status);
+            console.log('Status Text:', response.statusText);
+            console.log('URL:', response.url);
+            console.log('Headers:', Array.from(response.headers.entries()));
+            console.log('Response Text:', text);
+            console.groupEnd();
+        }
+
+        async function safeJsonParse(response) {
+            // Read response body once (streams can only be read once)
+            const text = await response.text();
+            
+            // Log response for debugging
+            logResponse(response, text);
+            
+            // Check if response is ok (status 200-299)
+            if (!response.ok) {
+                let errorMessage = `Server error: ${response.status} ${response.statusText}`;
+                let errorDetails = '';
+                
+                // Special handling for 405 Method Not Allowed
+                if (response.status === 405) {
+                    errorMessage = '❌ HTTP 405: Method Not Allowed';
+                    
+                    // Get the tracked request method
+                    const requestMethod = getTrackedMethod(response.url);
+                    
+                    errorDetails = `
+The server rejected the request because the HTTP method is not allowed for this endpoint.
+
+📍 Request Details:
+   • URL: ${response.url}
+   • Method: ${requestMethod}
+   
+❓ What this means:
+   The endpoint "${new URL(response.url).pathname}" does not accept the ${requestMethod} HTTP method.
+   
+🔧 Possible causes:
+   1. The API endpoint route is not properly configured for ${requestMethod}
+   2. The Flask route is missing the required HTTP method in its methods list
+   3. There's a typo in the endpoint URL
+   4. The server route configuration has changed
+
+💡 Troubleshooting:
+   1. Check server logs for route configuration
+   2. Verify the endpoint accepts ${requestMethod} requests
+   3. Check the Flask app.py for the route definition: @app.route('/path', methods=['${requestMethod}'])
+   4. Look for any recent changes to API routes`;
+                }
+                
+                // Try to parse as JSON to get error details
+                if (text) {
+                    try {
+                        const json = JSON.parse(text);
+                        const serverError = json.error || json.message;
+                        if (serverError) {
+                            errorDetails = errorDetails ? `${errorDetails}\n\n🔴 Server Error: ${serverError}` : serverError;
+                        }
+                    } catch (e) {
+                        // If not JSON, use the text as error message
+                        if (text && !errorDetails) {
+                            errorDetails = text;
+                        }
+                    }
+                }
+                
+                const fullError = new Error(errorMessage);
+                fullError.details = errorDetails;
+                fullError.status = response.status;
+                fullError.url = response.url;
+                throw fullError;
+            }
+            
+            // Check if response has content
+            if (!text || text.trim() === '') {
+                throw new Error('Empty response from server');
+            }
+            
+            // Parse JSON
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                throw new Error(`Invalid JSON response: ${e.message}`);
+            }
+        }
+        
+        // UI Update Functions
+        function updateConnectionStatus(connected) {
+            const dot = document.getElementById('connectionStatus');
+            const text = document.getElementById('connectionText');
+            
+            if (connected) {
+                dot.style.background = 'var(--success)';
+                text.textContent = 'Connected';
+            } else {
+                dot.style.background = 'var(--error)';
+                text.textContent = 'Disconnected';
+            }
+        }
+        
+        function addEvent(message, type = 'info') {
+            const eventList = document.getElementById('eventList');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            const eventHtml = `
+                <div class="event-item ${type}">
+                    <div class="timestamp">${timestamp}</div>
+                    ${message}
+                </div>
+            `;
+            
+            eventList.insertAdjacentHTML('afterbegin', eventHtml);
+            
+            // Keep only last 50 events
+            while (eventList.children.length > 50) {
+                eventList.removeChild(eventList.lastChild);
+            }
+        }
+        
+        function formatEventMessage(event) {
+            const type = event.event_type;
+            const data = event.data;
+            
+            switch (type) {
+                case 'task_started':
+                    return `🚀 Task started: ${data.task_name || data.task_id}`;
+                case 'task_completed':
+                    return `✅ Task completed: ${data.task_name || data.task_id}`;
+                case 'task_failed':
+                    return `❌ Task failed: ${data.error || data.task_id}`;
+                case 'artifact_created':
+                    return `📄 Artifact created: ${data.file_path || data.artifact_id}`;
+                case 'test_completed':
+                    return `🧪 Tests completed: ${data.passed}/${data.total} passed`;
+                default:
+                    return `${type}: ${JSON.stringify(data).substring(0, 100)}`;
+            }
+        }
+        
+        function getEventClass(eventType) {
+            if (eventType.includes('completed') || eventType.includes('success')) return 'success';
+            if (eventType.includes('failed') || eventType.includes('error')) return 'error';
+            return 'info';
+        }
+        
+        function updateDashboard(state) {
+            if (!state) return;
+            
+            // Calculate status counts from tasks
+            const statusCounts = { completed: 0, pending: 0, failed: 0, in_progress: 0, blocked: 0, skipped: 0 };
+            
+            if (state.tasks && Array.isArray(state.tasks)) {
+                state.tasks.forEach(task => {
+                    const status = task.status || 'pending';
+                    if (statusCounts.hasOwnProperty(status)) {
+                        statusCounts[status]++;
+                    }
+                });
+            }
+            
+            // Use provided status_breakdown if available, otherwise use calculated
+            const counts = state.status_breakdown || statusCounts;
+            
+            // Update stats
+            const total = state.tasks?.length || 0;
+            document.getElementById('totalTasks').textContent = total;
+            document.getElementById('completedTasks').textContent = counts.completed || 0;
+            document.getElementById('pendingTasks').textContent = counts.pending || 0;
+            document.getElementById('failedTasks').textContent = counts.failed || 0;
+            
+            // Update progress bar
+            const completed = counts.completed || 0;
+            const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+            
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            
+            if (progressFill && progressText) {
+                progressFill.style.width = `${progress}%`;
+                progressText.textContent = `${progress}%`;
+                
+                // Add visual feedback based on progress
+                if (progress === 100) {
+                    progressFill.style.background = 'linear-gradient(90deg, var(--success), #27ae60)';
+                } else if (progress > 0) {
+                    progressFill.style.background = 'linear-gradient(90deg, var(--info), var(--primary))';
+                } else {
+                    progressFill.style.background = 'var(--border)';
+                }
+            }
+            
+            // Update pipeline status
+            const pipelineStatus = document.getElementById('pipelineStatus');
+            if (pipelineStatus) {
+                pipelineStatus.textContent = state.status || 'Active';
+            }
+            
+            // Update task list
+            if (state.tasks) {
+                tasks = state.tasks;
+                renderTasks(tasks);
+            }
+            
+            // Update artifacts
+            if (state.artifacts) {
+                artifacts = state.artifacts;
+                renderArtifacts(artifacts);
+            }
+        }
+        
+        function renderTasks(taskList) {
+            const container = document.getElementById('taskList');
+            
+            if (!taskList || taskList.length === 0) {
+                container.innerHTML = `
+                    <div class="task-item pending">
+                        <div class="task-status pending">⏳</div>
+                        <div class="task-info">
+                            <h4>No tasks yet</h4>
+                            <span>Create a pipeline to see tasks</span>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = taskList.map(task => `
+                <div class="task-item ${task.status}">
+                    <div class="task-status ${task.status}">${getStatusIcon(task.status)}</div>
+                    <div class="task-info">
+                        <h4>${task.name}</h4>
+                        <span>${task.agent_type} • ${task.status}</span>
+                    </div>
+                    <div class="task-actions">
+                        ${task.status === 'pending' ? `<button type="button" onclick="executeTask('${task.id}')">Run</button>` : ''}
+                        ${task.status === 'failed' ? `<button type="button" onclick="rerunTask('${task.id}')">Retry</button>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function getStatusIcon(status) {
+            switch (status) {
+                case 'completed': return '✅';
+                case 'in_progress': return '🔄';
+                case 'failed': return '❌';
+                default: return '⏳';
+            }
+        }
+        
+        function renderArtifacts(artifactList) {
+            const tabsContainer = document.getElementById('artifactTabs');
+            const exportAllBtn = document.getElementById('exportAllBtn');
+            const exportWithDocsBtn = document.getElementById('exportWithDocsBtn');
+            document.getElementById('artifactCount').textContent = `${artifactList.length} files`;
+            
+            if (!artifactList || artifactList.length === 0) {
+                tabsContainer.innerHTML = '';
+                if (exportAllBtn) exportAllBtn.style.display = 'none';
+                if (exportWithDocsBtn) exportWithDocsBtn.style.display = 'none';
+                return;
+            }
+            
+            // Show export buttons when artifacts are available
+            if (exportAllBtn) exportAllBtn.style.display = 'inline-block';
+            if (exportWithDocsBtn) exportWithDocsBtn.style.display = 'inline-block';
+            
+            tabsContainer.innerHTML = artifactList.slice(0, 5).map((artifact, i) => `
+                <button type="button" class="tab ${i === 0 ? 'active' : ''}" onclick="showArtifact('${artifact.id}')">
+                    ${artifact.file_path.split('/').pop()}
+                </button>
+            `).join('');
+            
+            // Show first artifact
+            if (artifactList.length > 0) {
+                showArtifact(artifactList[0].id);
+            }
+        }
+        
+        function showArtifact(artifactId) {
+            const artifact = artifacts.find(a => a.id === artifactId);
+            if (!artifact) return;
+            
+            const fileName = artifact.file_path.split('/').pop();
+            document.getElementById('codeDisplay').innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: var(--bg-secondary); border-bottom: 1px solid rgba(255,255,255,0.1);">
+                    <span style="font-weight: 500;">${artifact.file_path}</span>
+                    <button type="button" class="btn btn-secondary" onclick="exportSingleArtifact('${artifact.id}')" style="padding: 0.3rem 0.6rem; font-size: 0.85rem;">
+                        📥 Download
+                    </button>
+                </div>
+                <pre>${escapeHtml(artifact.content)}</pre>
+            `;
+            
+            // Update active tab
+            document.querySelectorAll('#artifactTabs .tab').forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.textContent.trim() === fileName) {
+                    tab.classList.add('active');
+                }
+            });
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function filterTasks(status) {
+            // Update active tab
+            document.querySelectorAll('.card:nth-child(3) .tab').forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.textContent.toLowerCase().includes(status === 'all' ? 'all' : status.replace('_', ''))) {
+                    tab.classList.add('active');
+                }
+            });
+            
+            // Filter tasks
+            let filtered = tasks;
+            if (status !== 'all') {
+                filtered = tasks.filter(t => t.status === status);
+            }
+            renderTasks(filtered);
+        }
+        
+        // Export all artifacts as ZIP
+        async function exportAllArtifacts() {
+            try {
+                addEvent('Exporting all code as ZIP...', 'info');
+                
+                const response = await fetch('/api/artifacts/export');
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Export failed');
+                }
+                
+                // Create a blob from the response and trigger download
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `generated_code_${new Date().getTime()}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                addEvent('✅ All code exported successfully', 'success');
+                showModal('Export Successful', `
+                    <div style="line-height: 1.8;">
+                        <p><strong>✅ All generated code has been exported!</strong></p>
+                        <p style="margin-top: 1rem;">The ZIP file includes:</p>
+                        <ul style="text-align: left; margin: 0.5rem 0; padding-left: 2rem;">
+                            <li>All source code files</li>
+                            <li>MANIFEST.json with metadata</li>
+                            <li>README.md with instructions</li>
+                        </ul>
+                    </div>
+                `);
+            } catch (error) {
+                console.error('Export error:', error);
+                addEvent(`❌ Export failed: ${error.message}`, 'error');
+                showModal('Export Failed', error.message);
+            }
+        }
+        
+        // Export all artifacts with comprehensive documentation
+        async function exportAllArtifactsWithDocs() {
+            try {
+                addEvent('Exporting code with documentation...', 'info');
+                
+                const response = await fetch('/api/artifacts/export-with-docs');
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Export failed');
+                }
+                
+                // Create a blob from the response and trigger download
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `generated_code_with_docs_${new Date().getTime()}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                addEvent('✅ Code and documentation exported successfully', 'success');
+                showModal('Export with Documentation Successful', `
+                    <div style="line-height: 1.8;">
+                        <p><strong>✅ Complete package exported!</strong></p>
+                        <p style="margin-top: 1rem;">The ZIP file includes:</p>
+                        <ul style="text-align: left; margin: 0.5rem 0; padding-left: 2rem;">
+                            <li><strong>src/</strong> - All source code files</li>
+                            <li><strong>docs/</strong> - Comprehensive documentation</li>
+                            <li><strong>docs/INDEX.md</strong> - Documentation index</li>
+                            <li><strong>MANIFEST.json</strong> - Complete metadata</li>
+                            <li><strong>README.md</strong> - Quick start guide</li>
+                        </ul>
+                        <p style="margin-top: 1rem; color: var(--info);">
+                            💡 This package is ideal for sharing or archiving your project with full documentation.
+                        </p>
+                    </div>
+                `);
+            } catch (error) {
+                console.error('Export error:', error);
+                addEvent(`❌ Export failed: ${error.message}`, 'error');
+                showModal('Export Failed', error.message);
+            }
+        }
+        
+        // Export single artifact
+        async function exportSingleArtifact(artifactId) {
+            try {
+                const artifact = artifacts.find(a => a.id === artifactId);
+                if (!artifact) {
+                    throw new Error('Artifact not found');
+                }
+                
+                const fileName = artifact.file_path.split('/').pop();
+                addEvent(`Downloading ${fileName}...`, 'info');
+                
+                const response = await fetch(`/api/artifact/${artifactId}/export`);
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Export failed');
+                }
+                
+                // Create a blob from the response and trigger download
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                addEvent(`✅ ${fileName} downloaded successfully`, 'success');
+            } catch (error) {
+                console.error('Export error:', error);
+                addEvent(`❌ Export failed: ${error.message}`, 'error');
+            }
+        }
+        
+        // Export complete pipeline output
+        async function exportCompletePipeline() {
+            try {
+                addEvent('Exporting complete pipeline output...', 'info');
+                
+                const response = await fetch('/api/pipeline/export-complete');
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Export failed');
+                }
+                
+                // Create a blob from the response and trigger download
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `pipeline_complete_output_${new Date().getTime()}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                addEvent('✅ Complete pipeline output exported successfully', 'success');
+                showModal('Complete Export Successful', `
+                    <div style="line-height: 1.8;">
+                        <p><strong>✅ Complete pipeline output has been exported!</strong></p>
+                        <p style="margin-top: 1rem;">The ZIP package includes:</p>
+                        <ul style="text-align: left; margin: 0.5rem 0; padding-left: 2rem;">
+                            <li><strong>code/</strong> - All generated source code files</li>
+                            <li><strong>reports/</strong> - Pipeline execution and test reports</li>
+                            <li><strong>test_plans/</strong> - Generated test plans</li>
+                            <li><strong>specification/</strong> - Original requirements (JSON & Markdown)</li>
+                            <li><strong>logs/</strong> - Pipeline execution logs</li>
+                            <li><strong>MANIFEST.json</strong> - Complete package metadata</li>
+                            <li><strong>README.md</strong> - Comprehensive guide</li>
+                        </ul>
+                        <p style="margin-top: 1rem; color: var(--success);">
+                            ✅ This package contains everything from the pipeline execution!
+                        </p>
+                    </div>
+                `);
+            } catch (error) {
+                console.error('Export error:', error);
+                addEvent(`❌ Export failed: ${error.message}`, 'error');
+                showModal('Export Failed', error.message);
+            }
+        }
+        
+        // Toggle ADO Config Panel (removed - no longer needed)
+        // ADO-related functions removed - artifacts are now displayed and exported
+        
+        // Run Automated Pipeline
+        async function runAutomatedPipeline() {
+            if (!currentSpec) {
+                addEvent('Please parse requirements first', 'error');
+                showModal('No Requirements', 'Please use "Parse Requirements" first.');
+                return;
+            }
+            
+            const statusSpan = document.getElementById('autoPipelineStatus');
+            const resultDiv = document.getElementById('autoPipelineResult');
+            const detailsDiv = document.getElementById('autoPipelineDetails');
+            
+            statusSpan.textContent = '⏳ Running automated pipeline...';
+            statusSpan.style.color = 'var(--warning)';
+            resultDiv.style.display = 'none';
+            
+            addEvent('🚀 Starting automated pipeline execution...', 'info');
+            
+            // Start polling for pipeline status updates
+            let pollInterval = null;
+            pollInterval = setInterval(async () => {
+                try {
+                    const statusResponse = await fetch('/api/pipeline/status');
+                    const statusResult = await safeJsonParse(statusResponse);
+                    
+                    if (statusResult.success && statusResult.pipeline) {
+                        updateDashboard(statusResult.pipeline);
+                    }
+                } catch (error) {
+                    console.error('Status polling error:', error);
+                }
+            }, 2000); // Poll every 2 seconds
+            
+            try {
+                const response = await fetch('/api/pipeline/execute-auto', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        spec: currentSpec
+                    })
+                });
+                
+                const result = await safeJsonParse(response);
+                
+                // Stop polling
+                if (pollInterval) {
+                    clearInterval(pollInterval);
+                }
+                
+                if (result.success) {
+                    statusSpan.textContent = '✅ Pipeline complete';
+                    statusSpan.style.color = 'var(--success)';
+                    
+                    currentPipeline = result.pipeline;
+                    updateDashboard(result.pipeline);
+                    
+                    // Show results
+                    detailsDiv.innerHTML = `
+                        <div style="display: grid; gap: 0.5rem; font-size: 0.9rem;">
+                            <div><strong>Tasks Completed:</strong> ${result.completed_tasks} / ${result.total_tasks}</div>
+                            <div><strong>Artifacts Generated:</strong> ${result.artifacts_count}</div>
+                            <div style="color: var(--info);"><strong>💡 Use the "Export All as ZIP" button above to download artifacts</strong></div>
+                        </div>
+                    `;
+                    resultDiv.style.display = 'block';
+                    
+                    addEvent(`✅ Automated pipeline complete: ${result.completed_tasks}/${result.total_tasks} tasks, ${result.artifacts_count} artifacts`, 'success');
+                    
+                    showModal('Pipeline Complete', `
+                        <div style="line-height: 1.8;">
+                            <p><strong>✅ Automated pipeline execution completed successfully!</strong></p>
+                            <ul style="text-align: left; margin: 1rem 0;">
+                                <li>Tasks completed: <strong>${result.completed_tasks} / ${result.total_tasks}</strong></li>
+                                <li>Artifacts generated: <strong>${result.artifacts_count}</strong></li>
+                                <li style="color: var(--info);">💡 Use the <strong>Export All as ZIP</strong> button to download all artifacts</li>
+                            </ul>
+                            <p style="margin-top: 1rem;">Check the dashboard below for details and generated artifacts.</p>
+                        </div>
+                    `);
+                } else {
+                    statusSpan.textContent = '❌ Pipeline failed';
+                    statusSpan.style.color = 'var(--error)';
+                    addEvent(`❌ Pipeline failed: ${result.error}`, 'error');
+                    
+                    showModal('Pipeline Failed', `
+                        <div style="line-height: 1.8;">
+                            <p><strong>❌ Automated pipeline execution failed</strong></p>
+                            <p style="margin-top: 1rem; color: var(--error);">${result.error}</p>
+                        </div>
+                    `);
+                }
+            } catch (error) {
+                // Stop polling on error
+                if (pollInterval) {
+                    clearInterval(pollInterval);
+                }
+                
+                console.error('Automated pipeline error:', error);
+                statusSpan.textContent = '❌ Pipeline error';
+                statusSpan.style.color = 'var(--error)';
+                addEvent(`❌ Pipeline error: ${error.message}`, 'error');
+                
+                showModal('Pipeline Error', `
+                    <div style="line-height: 1.8;">
+                        <p><strong>❌ An error occurred during pipeline execution</strong></p>
+                        <p style="margin-top: 1rem; color: var(--error);">${error.message}</p>
+                    </div>
+                `);
+            }
+        }
+        
+        // Extract from Azure DevOps (kept for parsing only, no commit functionality)
+        async function extractFromAdo() {
+            const orgUrl = document.getElementById('adoOrgUrl').value.trim();
+            const pat = document.getElementById('adoPat').value.trim();
+            const project = document.getElementById('adoProject').value.trim();
+            const statusSpan = document.getElementById('adoStatus');
+            
+            // Validate credentials
+            if (!orgUrl || !pat || !project) {
+                addEvent('Please fill in all Azure DevOps credentials', 'error');
+                statusSpan.textContent = '❌ Missing credentials';
+                statusSpan.style.color = 'var(--error)';
+                return;
+            }
+            
+            // Validate URL format - be more flexible to support various Azure DevOps configurations
+            // Accept: https://dev.azure.com/org, https://dev.azure.com/org/, on-premises servers, etc.
+            // Note: HTTP is allowed for local development/testing only
+            if (!orgUrl.startsWith('https://') && !orgUrl.startsWith('http://')) {
+                addEvent('Invalid Organization URL format. URL must start with https:// or http://', 'error');
+                statusSpan.textContent = '❌ Invalid URL format';
+                statusSpan.style.color = 'var(--error)';
+                return;
+            }
+            
+            // Use URL constructor for proper parsing (parse once, use throughout)
+            let parsedUrl;
+            try {
+                parsedUrl = new URL(orgUrl);
+            } catch (e) {
+                addEvent('Invalid URL format. Please check your Organization URL.', 'error');
+                statusSpan.textContent = '❌ Invalid URL';
+                statusSpan.style.color = 'var(--error)';
+                return;
+            }
+            
+            // Warn about HTTP (non-secure) URLs - use parsed hostname for proper check
+            if (parsedUrl.protocol === 'http:') {
+                const host = parsedUrl.hostname.toLowerCase();
+                // Allow localhost and loopback addresses without warning
+                // Note: URL constructor removes brackets from IPv6 addresses in hostname
+                const isLocalHost = host === 'localhost' || host === '127.0.0.1' || 
+                                   host === '::1';
+                
+                if (!isLocalHost) {
+                    const proceed = confirm('⚠️ WARNING: You are using HTTP (not HTTPS).\n\nYour credentials may be exposed in transit.\n\nThis should only be used for local development.\n\nDo you want to proceed?');
+                    if (!proceed) {
+                        statusSpan.textContent = '❌ Cancelled';
+                        statusSpan.style.color = 'var(--warning)';
+                        return;
+                    }
+                }
+            }
+            
+            // Check if it's a valid Azure DevOps URL
+            const hostname = parsedUrl.hostname.toLowerCase();
+            // For Visual Studio, validate single-level org names (org.visualstudio.com)
+            // Already validated by split check, regex would be redundant
+            const isVisualStudioCloud = hostname.endsWith('.visualstudio.com') && 
+                                       hostname.split('.').length === 3;
+            const isAzureDevOpsCloud = hostname === 'dev.azure.com' || isVisualStudioCloud;
+            const pathname = parsedUrl.pathname;
+            const pathParts = pathname.split('/').filter(part => part.length > 0);
+            
+            // For cloud URLs, ensure there's an organization specified in the path
+            if (isAzureDevOpsCloud) {
+                if (pathParts.length === 0) {
+                    addEvent('Invalid Organization URL. Cloud URLs must include organization name.<br>Example: https://dev.azure.com/your-organization', 'error');
+                    statusSpan.textContent = '❌ Missing organization';
+                    statusSpan.style.color = 'var(--error)';
+                    return;
+                }
+            } else {
+                // For on-premises, ensure there's at least a collection/project path
+                if (pathParts.length === 0) {
+                    addEvent('Invalid Organization URL. On-premises URLs should include collection path.<br>Example: https://your-server/your-collection', 'error');
+                    statusSpan.textContent = '❌ Invalid structure';
+                    statusSpan.style.color = 'var(--error)';
+                    return;
+                }
+            }
+            
+            statusSpan.textContent = '⏳ Extracting...';
+            statusSpan.style.color = 'var(--info)';
+            addEvent('Connecting to Azure DevOps...', 'info');
+            
+            try {
+                // Call the new fetch endpoint
+                const response = await fetch('/api/ado/fetch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        org_url: orgUrl,
+                        pat: pat,
+                        project: project
+                    })
+                });
+                
+                const result = await safeJsonParse(response);
+                
+                if (result.success) {
+                    currentSpec = result.spec;
+                    const storyCount = result.fetched_count || 0;
+                    
+                    statusSpan.textContent = `✅ Fetched ${storyCount} stories`;
+                    statusSpan.style.color = 'var(--success)';
+                    addEvent(`✅ Successfully fetched ${storyCount} user ${storyCount === 1 ? 'story' : 'stories'} from Azure DevOps`, 'success');
+                    
+                    // Auto-create pipeline if we have stories
+                    if (storyCount > 0) {
+                        addEvent('Auto-creating pipeline...', 'info');
+                        setTimeout(createPipeline, AUTO_PIPELINE_DELAY_MS);
+                    }
+                    
+                    showModal('Fetched from Azure DevOps', `
+                        <div style="padding: 1rem;">
+                            <div style="color: var(--success); margin-bottom: 1rem;">
+                                <strong>✅ Successfully fetched ${storyCount} user ${storyCount === 1 ? 'story' : 'stories'}</strong>
+                            </div>
+                            <pre style="background: var(--bg-card); padding: 1rem; border-radius: 6px; max-height: 400px; overflow-y: auto; font-size: 0.85rem;">${JSON.stringify(result.spec, null, 2)}</pre>
+                        </div>
+                    `);
+                } else {
+                    const errorMsg = result.error || 'Unknown error';
+                    statusSpan.textContent = '❌ Failed';
+                    statusSpan.style.color = 'var(--error)';
+                    addEvent(`Extraction failed: ${errorMsg}`, 'error');
+                    
+                    showModal('Azure DevOps Extraction Failed', `
+                        <div style="padding: 1rem;">
+                            <div style="color: var(--error); margin-bottom: 1rem;">
+                                <strong>❌ Error:</strong>
+                            </div>
+                            <pre style="background: var(--bg-card); padding: 1rem; border-radius: 6px; white-space: pre-wrap; font-size: 0.85rem;">${escapeHtml(errorMsg)}</pre>
+                            <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-card); border-radius: 6px; font-size: 0.9rem;">
+                                <strong>Troubleshooting:</strong>
+                                <ul style="margin: 0.5rem 0; padding-left: 1.5rem;">
+                                    <li>Verify your Organization URL format:
+                                        <ul style="margin: 0.25rem 0; padding-left: 1.5rem;">
+                                            <li>Cloud: <code>https://dev.azure.com/your-organization</code></li>
+                                            <li>On-premises: <code>https://your-server/your-collection</code></li>
+                                        </ul>
+                                    </li>
+                                    <li>Ensure PAT has "Work Items (Read)" permission</li>
+                                    <li>Check that Project name is correct (case-sensitive)</li>
+                                    <li>Make sure you have access to the project</li>
+                                    <li>Verify network connectivity to Azure DevOps</li>
+                                </ul>
+                            </div>
+                        </div>
+                    `);
+                }
+                
+            } catch (error) {
+                addEvent(`Request failed: ${error.message}`, 'error');
+                statusSpan.textContent = '❌ Failed';
+                statusSpan.style.color = 'var(--error)';
+                
+                showModal('Request Failed', `
+                    <div style="padding: 1rem;">
+                        <div style="color: var(--error); margin-bottom: 1rem;">
+                            <strong>❌ Request Failed:</strong>
+                        </div>
+                        <pre style="background: var(--bg-card); padding: 1rem; border-radius: 6px; white-space: pre-wrap; font-size: 0.85rem;">${escapeHtml(error.message)}</pre>
+                    </div>
+                `);
+            }
+        }
+        
+        // commitToAdo function removed - artifacts are now displayed and exported instead
+        
+        // Validate JSON syntax only - backend handles structural validation
+        function validateJsonSyntax(jsonString) {
+            try {
+                JSON.parse(jsonString);
+                return { valid: true };
+            } catch (e) {
+                return {
+                    valid: false,
+                    error: `Invalid JSON syntax: ${e.message}`
+                };
+            }
+        }
+        
+        // Toggle ADO Connection Panel
+        function toggleAdoPanel() {
+            const panel = document.getElementById('adoConnectionPanel');
+            const icon = document.getElementById('adoToggleIcon');
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                icon.textContent = '▲';
+            } else {
+                panel.style.display = 'none';
+                icon.textContent = '▼';
+            }
+        }
+        
+        // Toggle Legacy Analyzer Panel
+        function toggleLegacyAnalyzer() {
+            const panel = document.getElementById('legacyAnalyzerPanel');
+            const icon = document.getElementById('legacyToggleIcon');
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                icon.textContent = '▲';
+            } else {
+                panel.style.display = 'none';
+                icon.textContent = '▼';
+            }
+        }
+        
+        // Analyze Legacy Repository
+        async function analyzeLegacyCode() {
+            const repoPath = document.getElementById('legacyRepoPath').value.trim();
+            const statusSpan = document.getElementById('legacyStatus');
+            const resultDiv = document.getElementById('legacyAnalysisResult');
+            const contentDiv = document.getElementById('legacyResultContent');
+            
+            if (!repoPath) {
+                addEvent('Please enter a repository path', 'error');
+                statusSpan.textContent = '❌ Repository path required';
+                statusSpan.style.color = 'var(--error)';
+                return;
+            }
+            
+            statusSpan.textContent = '⏳ Analyzing repository...';
+            statusSpan.style.color = 'var(--info)';
+            addEvent(`Analyzing legacy repository at ${repoPath}...`, 'info');
+            resultDiv.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/legacy/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ repo_path: repoPath })
+                });
+                
+                const result = await safeJsonParse(response);
+                
+                if (result.success) {
+                    const analysis = result.analysis;
+                    
+                    // Display results
+                    contentDiv.innerHTML = `
+                        <div style="display: grid; gap: 0.75rem;">
+                            <div>
+                                <strong style="color: var(--accent);">Tech Stack:</strong>
+                                <div style="margin-top: 0.25rem; padding-left: 1rem;">
+                                    ${Object.entries(analysis.tech_stack || {}).map(([key, value]) => 
+                                        `<div>• ${key}: <span style="color: var(--text-secondary);">${value}</span></div>`
+                                    ).join('')}
+                                </div>
+                            </div>
+                            <div>
+                                <strong style="color: var(--accent);">Architecture:</strong>
+                                <div style="margin-top: 0.25rem; color: var(--text-secondary);">${analysis.architecture || 'Not detected'}</div>
+                            </div>
+                            <div>
+                                <strong style="color: var(--accent);">Dependencies:</strong>
+                                <div style="margin-top: 0.25rem; padding-left: 1rem;">
+                                    ${(analysis.dependencies || []).slice(0, 5).map(dep => 
+                                        `<div>• ${dep.name || dep}: <span style="color: var(--text-secondary);">${dep.version || ''}</span></div>`
+                                    ).join('') || '<div style="color: var(--text-secondary);">None detected</div>'}
+                                    ${(analysis.dependencies || []).length > 5 ? `<div style="color: var(--text-secondary); font-style: italic;">...and ${(analysis.dependencies || []).length - 5} more</div>` : ''}
+                                </div>
+                            </div>
+                            <div>
+                                <strong style="color: var(--accent);">Conventions Found:</strong>
+                                <div style="margin-top: 0.25rem; padding-left: 1rem;">
+                                    ${(analysis.conventions || []).map(conv => 
+                                        `<div>• ${conv}</div>`
+                                    ).join('') || '<div style="color: var(--text-secondary);">None detected</div>'}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    resultDiv.style.display = 'block';
+                    statusSpan.textContent = '✅ Analysis complete';
+                    statusSpan.style.color = 'var(--success)';
+                    addEvent('✅ Legacy analysis completed successfully', 'success');
+                } else {
+                    statusSpan.textContent = '❌ Analysis failed';
+                    statusSpan.style.color = 'var(--error)';
+                    addEvent(`❌ Legacy analysis failed: ${result.error}`, 'error');
+                    
+                    showModal('Analysis Failed', `
+                        <div style="padding: 1rem;">
+                            <div style="color: var(--error); margin-bottom: 1rem;">
+                                <strong>❌ Failed to analyze repository</strong>
+                            </div>
+                            <div style="background: var(--bg-card); padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
+                                <strong>Error:</strong><br>
+                                ${result.error || 'Unknown error'}
+                            </div>
+                            ${result.request_details ? `
+                                <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                                    <strong>Request Details:</strong><br>
+                                    ${JSON.stringify(result.request_details, null, 2).replace(/\n/g, '<br>')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `);
+                }
+            } catch (error) {
+                statusSpan.textContent = '❌ Analysis failed';
+                statusSpan.style.color = 'var(--error)';
+                addEvent(`❌ Error: ${error.message}`, 'error');
+                console.error('Legacy analysis error:', error);
+            }
+        }
+
+        // API Functions
+        async function parseRequirements() {
+            const input = document.getElementById('inputArea').value;
+            if (!input.trim()) {
+                addEvent('Please enter requirements first', 'error');
+                return;
+            }
+            
+            // Determine format
+            const trimmedInput = input.trim();
+            const isJson = trimmedInput.startsWith('[') || trimmedInput.startsWith('{');
+            const format = isJson ? 'json' : 'csv';
+            
+            // Basic JSON syntax check only (non-blocking)
+            if (isJson) {
+                const validation = validateJsonSyntax(trimmedInput);
+                if (!validation.valid) {
+                    // Note: Not blocking submission - backend will validate
+                    console.debug('JSON syntax check failed:', validation.error);
+                } else {
+                    console.debug('JSON syntax valid');
+                }
+            }
+            
+            try {
+                addEvent(`Parsing ${format.toUpperCase()} data...`, 'info');
+                
+                const requestBody = JSON.stringify({
+                    data: input,
+                    format: format
+                });
+                
+                // Log request for debugging
+                logRequest('POST', '/api/ado/parse', requestBody);
+                
+                const response = await fetch('/api/ado/parse', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: requestBody
+                });
+                
+                const result = await safeJsonParse(response);
+                
+                if (result.success) {
+                    currentSpec = result.spec;
+                    const storyCount = result.spec.user_stories?.length || 0;
+                    addEvent(`✅ Successfully parsed ${storyCount} user ${storyCount === 1 ? 'story' : 'stories'}`, 'success');
+                    
+                    // Auto-create pipeline if we have stories
+                    if (storyCount > 0) {
+                        addEvent('Auto-creating pipeline...', 'info');
+                        setTimeout(createPipeline, AUTO_PIPELINE_DELAY_MS);
+                    }
+                    
+                    showModal('Parsed Requirements', `
+                        <div style="padding: 1rem;">
+                            <div style="color: var(--success); margin-bottom: 1rem;">
+                                <strong>✅ Successfully parsed ${storyCount} user ${storyCount === 1 ? 'story' : 'stories'}</strong>
+                            </div>
+                            <pre style="background: var(--bg-card); padding: 1rem; border-radius: 6px; max-height: 400px; overflow-y: auto; font-size: 0.85rem;">${JSON.stringify(result.spec, null, 2)}</pre>
+                        </div>
+                    `);
+                } else {
+                    const errorMsg = result.error || 'Unknown error';
+                    addEvent(`Parse error: ${errorMsg}`, 'error');
+                    
+                    // Provide helpful error message
+                    let helpText = '';
+                    if (errorMsg.includes('JSON')) {
+                        helpText = '\n\nTip: Make sure your JSON is valid. Use a JSON validator if needed.';
+                    }
+                    
+                    showModal('Parse Error', `
+                        <div style="padding: 1rem;">
+                            <div style="color: var(--error); margin-bottom: 1rem;">
+                                <strong>❌ Error:</strong>
+                            </div>
+                            <pre style="background: var(--bg-card); padding: 1rem; border-radius: 6px; white-space: pre-wrap; font-size: 0.85rem;">${escapeHtml(errorMsg + helpText)}</pre>
+                        </div>
+                    `);
+                }
+            } catch (error) {
+                console.error('❌ Request failed:', error);
+                addEvent(`Request failed: ${error.message}`, 'error');
+                
+                // Build detailed error display
+                let errorHtml = `
+                    <div style="padding: 1rem;">
+                        <div style="color: var(--error); margin-bottom: 1rem;">
+                            <strong>${error.status === 405 ? error.message : '❌ Request Failed:'}</strong>
+                        </div>`;
+                
+                // Show detailed information for specific errors
+                if (error.details) {
+                    errorHtml += `
+                        <pre style="background: var(--bg-card); padding: 1rem; border-radius: 6px; white-space: pre-wrap; font-size: 0.85rem; line-height: 1.6;">${escapeHtml(error.details)}</pre>`;
+                } else {
+                    errorHtml += `
+                        <pre style="background: var(--bg-card); padding: 1rem; border-radius: 6px; white-space: pre-wrap; font-size: 0.85rem;">${escapeHtml(error.message)}</pre>`;
+                }
+                
+                errorHtml += `
+                        <div style="margin-top: 1rem; padding: 0.75rem; background: rgba(59, 130, 246, 0.1); border-left: 3px solid var(--info); border-radius: 4px;">
+                            <strong>🔍 Debug Information:</strong><br>
+                            <small style="color: var(--text-secondary);">
+                                Check the browser console (F12) for detailed request/response logs
+                            </small>
+                        </div>
+                    </div>`;
+                
+                showModal(error.status === 405 ? 'HTTP 405 Error' : 'Request Failed', errorHtml);
+            }
+        }
+        
+        async function createPipeline() {
+            if (!currentSpec) {
+                addEvent('Please parse requirements first', 'error');
+                return;
+            }
+            
+            try {
+                const requestBody = JSON.stringify({ spec: currentSpec });
+                
+                // Log request for debugging
+                logRequest('POST', '/api/pipeline/create', requestBody);
+                
+                const response = await fetch('/api/pipeline/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: requestBody
+                });
+                
+                const result = await safeJsonParse(response);
+                
+                if (result.success) {
+                    currentPipeline = result.pipeline;
+                    updateDashboard(result.pipeline);
+                    addEvent(`Pipeline created with ${result.pipeline.tasks?.length || 0} tasks`, 'success');
+                } else {
+                    addEvent(`Pipeline error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('❌ Pipeline creation failed:', error);
+                addEvent(`Request failed: ${error.message}`, 'error');
+            }
+        }
+        
+        async function executeTask(taskId) {
+            try {
+                addEvent(`Starting task ${taskId}...`, 'info');
+                
+                const response = await fetch(`/api/task/${taskId}/execute`, {
+                    method: 'POST'
+                });
+                
+                const result = await safeJsonParse(response);
+                
+                if (result.success) {
+                    addEvent(`Task completed with ${result.artifacts?.length || 0} artifacts`, 'success');
+                    refreshDashboard();
+                } else {
+                    addEvent(`Task failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                addEvent(`Request failed: ${error.message}`, 'error');
+            }
+        }
+        
+        async function rerunTask(taskId) {
+            try {
+                const response = await fetch(`/api/task/${taskId}/rerun`, {
+                    method: 'POST'
+                });
+                
+                const result = await safeJsonParse(response);
+                
+                if (result.success) {
+                    addEvent('Task re-run completed', 'success');
+                    refreshDashboard();
+                } else {
+                    addEvent(`Rerun failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                addEvent(`Request failed: ${error.message}`, 'error');
+            }
+        }
+        
+        async function runAllTasks() {
+            if (!currentPipeline || !currentPipeline.tasks) {
+                addEvent('No pipeline active', 'error');
+                return;
+            }
+            
+            addEvent('Running all pending tasks...', 'info');
+            
+            for (const task of currentPipeline.tasks) {
+                if (task.status === 'pending') {
+                    await executeTask(task.id);
+                }
+            }
+            
+            addEvent('All tasks completed', 'success');
+        }
+        
+        async function createCheckpoint() {
+            const name = prompt('Enter checkpoint name:', `checkpoint_${Date.now()}`);
+            if (!name) return;
+            
+            try {
+                const response = await fetch('/api/monitoring/checkpoint', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                
+                const result = await safeJsonParse(response);
+                
+                if (result.success) {
+                    addEvent(`Checkpoint created: ${name}`, 'success');
+                } else {
+                    addEvent(`Checkpoint failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                addEvent(`Request failed: ${error.message}`, 'error');
+            }
+        }
+        
+        async function refreshDashboard() {
+            try {
+                const response = await fetch('/api/pipeline/status');
+                const result = await safeJsonParse(response);
+                
+                if (result.success) {
+                    updateDashboard(result.pipeline);
+                }
+            } catch (error) {
+                console.error('Dashboard refresh failed:', error);
+            }
+        }
+        
+        // Modal Functions
+        function showModal(title, content) {
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalContent').innerHTML = content;
+            document.getElementById('modal').classList.add('active');
+        }
+        
+        function closeModal() {
+            document.getElementById('modal').classList.remove('active');
+        }
+        
+        // Agent selection
+        document.querySelectorAll('.agent-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.agent-item').forEach(i => i.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+        
+        // Prevent Enter key from submitting forms in input fields
+        document.querySelectorAll('input[type="text"], input[type="password"]').forEach(input => {
+            input.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    // Don't auto-trigger for ADO fields to avoid accidental API calls
+                }
+            });
+        });
+        
+        // Initialize
+        refreshDashboard();
+        
+        // Auto-refresh every 5 seconds
+        setInterval(refreshDashboard, 5000);
+    </script>
+</body>
+</html>

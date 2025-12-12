@@ -1,0 +1,39 @@
+# CrewAI and AI dependencies
+crewai>=0.28.0
+langchain>=0.1.0
+langchain-openai>=0.0.2
+langchain-groq>=0.1.0
+openai>=1.6.0
+groq>=0.4.0
+
+# Web framework for UI
+flask>=3.0.0
+flask-cors>=4.0.0
+flask-socketio>=5.3.6
+
+# Testing frameworks
+pytest>=7.4.3
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.1
+playwright>=1.40.0
+
+# Code analysis
+ast-comments>=1.1.0
+radon>=6.0.1
+
+# Data processing
+pandas>=2.1.3
+pyyaml>=6.0.1
+
+# HTTP client for ADO
+requests>=2.31.0
+aiohttp>=3.9.1
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.5.2
+uuid6>=2023.5.2
+
+# WebSocket for real-time updates
+python-socketio>=5.10.0
+eventlet>=0.34.2

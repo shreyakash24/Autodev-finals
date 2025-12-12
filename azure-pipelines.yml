@@ -1,0 +1,316 @@
+# Azure DevOps Pipeline for Agentic Code Generation System
+# This pipeline builds, tests, and publishes artifacts for the generated code
+
+trigger:
+  branches:
+    include:
+      - main
+      - generated-code
+  paths:
+    exclude:
+      - README.md
+      - docs/**
+      - .gitignore
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    exclude:
+      - README.md
+      - docs/**
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  pythonVersion: '3.11'
+  nodeVersion: '20.x'
+  generatedCodeBranch: 'generated-code'
+
+stages:
+  - stage: Validate
+    displayName: 'Validation Stage'
+    jobs:
+      - job: ValidateCode
+        displayName: 'Validate Code Quality'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(pythonVersion)'
+            displayName: 'Use Python $(pythonVersion)'
+          
+          - script: |
+              python -m pip install --upgrade pip
+              pip install pylint flake8 black isort mypy
+            displayName: 'Install Python linters'
+          
+          - script: |
+              echo "Running code validation..."
+              if [ -d "backend" ]; then
+                cd backend
+                # Check Python code formatting
+                black --check . || echo "Code formatting issues found"
+                # Check imports
+                isort --check-only . || echo "Import ordering issues found"
+                # Run linting
+                pylint **/*.py --exit-zero || echo "Linting issues found"
+              fi
+            displayName: 'Run Python code validation'
+          
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '$(nodeVersion)'
+            displayName: 'Use Node.js $(nodeVersion)'
+            condition: succeeded()
+          
+          - script: |
+              if [ -d "frontend" ]; then
+                cd frontend
+                npm install
+                npm run lint || echo "Frontend linting issues found"
+              fi
+            displayName: 'Run frontend code validation'
+            condition: succeeded()
+
+  - stage: Build
+    displayName: 'Build Stage'
+    dependsOn: Validate
+    jobs:
+      - job: BuildBackend
+        displayName: 'Build Backend'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(pythonVersion)'
+            displayName: 'Use Python $(pythonVersion)'
+          
+          - script: |
+              if [ -d "backend" ]; then
+                cd backend
+                python -m pip install --upgrade pip
+                if [ -f "requirements.txt" ]; then
+                  pip install -r requirements.txt
+                fi
+                echo "Backend dependencies installed"
+              else
+                echo "No backend directory found, skipping"
+              fi
+            displayName: 'Install backend dependencies'
+          
+          - task: ArchiveFiles@2
+            inputs:
+              rootFolderOrFile: 'backend'
+              includeRootFolder: false
+              archiveType: 'zip'
+              archiveFile: '$(Build.ArtifactStagingDirectory)/backend.zip'
+              replaceExistingArchive: true
+            displayName: 'Archive backend code'
+            condition: and(succeeded(), eq(variables['Build.SourceBranchName'], variables['generatedCodeBranch']))
+          
+          - task: PublishBuildArtifacts@1
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)/backend.zip'
+              ArtifactName: 'backend'
+              publishLocation: 'Container'
+            displayName: 'Publish backend artifact'
+            condition: and(succeeded(), eq(variables['Build.SourceBranchName'], variables['generatedCodeBranch']))
+      
+      - job: BuildFrontend
+        displayName: 'Build Frontend'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '$(nodeVersion)'
+            displayName: 'Use Node.js $(nodeVersion)'
+          
+          - script: |
+              if [ -d "frontend" ]; then
+                cd frontend
+                npm install
+                npm run build || echo "Build completed with warnings"
+                echo "Frontend build completed"
+              else
+                echo "No frontend directory found, skipping"
+              fi
+            displayName: 'Build frontend'
+          
+          - task: ArchiveFiles@2
+            inputs:
+              rootFolderOrFile: 'frontend/dist'
+              includeRootFolder: false
+              archiveType: 'zip'
+              archiveFile: '$(Build.ArtifactStagingDirectory)/frontend.zip'
+              replaceExistingArchive: true
+            displayName: 'Archive frontend build'
+            condition: and(succeeded(), eq(variables['Build.SourceBranchName'], variables['generatedCodeBranch']))
+          
+          - task: PublishBuildArtifacts@1
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)/frontend.zip'
+              ArtifactName: 'frontend'
+              publishLocation: 'Container'
+            displayName: 'Publish frontend artifact'
+            condition: and(succeeded(), eq(variables['Build.SourceBranchName'], variables['generatedCodeBranch']))
+
+  - stage: Test
+    displayName: 'Test Stage'
+    dependsOn: Build
+    jobs:
+      - job: UnitTests
+        displayName: 'Run Unit Tests'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(pythonVersion)'
+            displayName: 'Use Python $(pythonVersion)'
+          
+          - script: |
+              if [ -d "backend" ]; then
+                cd backend
+                python -m pip install --upgrade pip
+                if [ -f "requirements.txt" ]; then
+                  pip install -r requirements.txt
+                fi
+                pip install pytest pytest-cov pytest-asyncio
+                
+                # Run unit tests with coverage
+                if [ -d "tests" ]; then
+                  pytest tests/ -v --cov=. --cov-report=xml --cov-report=html --junit-xml=test-results.xml || echo "Some tests failed"
+                else
+                  echo "No tests directory found, skipping unit tests"
+                fi
+              else
+                echo "No backend directory found, skipping"
+              fi
+            displayName: 'Run backend unit tests'
+          
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '**/test-results.xml'
+              failTaskOnFailedTests: false
+              testRunTitle: 'Unit Tests'
+            displayName: 'Publish unit test results'
+            condition: succeededOrFailed()
+          
+          - task: PublishCodeCoverageResults@1
+            inputs:
+              codeCoverageTool: 'Cobertura'
+              summaryFileLocation: '**/coverage.xml'
+            displayName: 'Publish code coverage'
+            condition: succeededOrFailed()
+      
+      - job: IntegrationTests
+        displayName: 'Run Integration Tests'
+        dependsOn: UnitTests
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(pythonVersion)'
+            displayName: 'Use Python $(pythonVersion)'
+          
+          - script: |
+              if [ -d "backend" ]; then
+                cd backend
+                python -m pip install --upgrade pip
+                if [ -f "requirements.txt" ]; then
+                  pip install -r requirements.txt
+                fi
+                pip install pytest pytest-asyncio
+                
+                # Run integration tests
+                if [ -d "tests/integration" ]; then
+                  pytest tests/integration/ -v --junit-xml=integration-results.xml || echo "Some integration tests failed"
+                else
+                  echo "No integration tests directory found, skipping"
+                fi
+              else
+                echo "No backend directory found, skipping"
+              fi
+            displayName: 'Run integration tests'
+          
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '**/integration-results.xml'
+              failTaskOnFailedTests: false
+              testRunTitle: 'Integration Tests'
+            displayName: 'Publish integration test results'
+            condition: succeededOrFailed()
+
+  - stage: E2ETests
+    displayName: 'E2E Test Stage'
+    dependsOn: Test
+    condition: and(succeeded(), eq(variables['Build.SourceBranchName'], variables['generatedCodeBranch']))
+    jobs:
+      - job: PlaywrightTests
+        displayName: 'Run Playwright E2E Tests'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '$(nodeVersion)'
+            displayName: 'Use Node.js $(nodeVersion)'
+          
+          - script: |
+              if [ -d "frontend" ] && [ -d "frontend/tests/e2e" ]; then
+                cd frontend
+                npm install
+                npx playwright install --with-deps
+                npx playwright test || echo "Some E2E tests failed"
+              else
+                echo "No E2E tests found, skipping"
+              fi
+            displayName: 'Run Playwright E2E tests'
+          
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '**/test-results/results.xml'
+              failTaskOnFailedTests: false
+              testRunTitle: 'E2E Tests'
+            displayName: 'Publish E2E test results'
+            condition: succeededOrFailed()
+          
+          - task: PublishBuildArtifacts@1
+            inputs:
+              PathtoPublish: 'frontend/test-results'
+              ArtifactName: 'e2e-test-results'
+              publishLocation: 'Container'
+            displayName: 'Publish E2E test artifacts'
+            condition: succeededOrFailed()
+
+  - stage: PublishArtifacts
+    displayName: 'Publish Artifacts Stage'
+    dependsOn:
+      - Test
+      - E2ETests
+    condition: and(succeeded(), eq(variables['Build.SourceBranchName'], variables['generatedCodeBranch']))
+    jobs:
+      - job: PublishToAzureArtifacts
+        displayName: 'Publish to Azure Artifacts'
+        steps:
+          - task: DownloadBuildArtifacts@0
+            inputs:
+              buildType: 'current'
+              downloadType: 'all'
+              downloadPath: '$(System.ArtifactsDirectory)'
+            displayName: 'Download all build artifacts'
+          
+          - script: |
+              echo "All artifacts downloaded to $(System.ArtifactsDirectory)"
+              ls -R $(System.ArtifactsDirectory)
+            displayName: 'List artifacts'
+          
+          - task: UniversalPackages@0
+            inputs:
+              command: 'publish'
+              publishDirectory: '$(System.ArtifactsDirectory)'
+              feedsToUsePublish: 'internal'
+              vstsFeedPublish: '$(System.TeamProject)/generated-code-artifacts'
+              vstsFeedPackagePublish: 'agentic-generated-code'
+              versionOption: 'patch'
+              packagePublishDescription: 'Generated code from agentic system - Build $(Build.BuildNumber)'
+            displayName: 'Publish to Azure Artifacts feed'
+            condition: succeeded()
