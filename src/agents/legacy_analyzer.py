@@ -1,10 +1,3 @@
-"""
-Legacy Analysis & Integration Agent
-Scans provided legacy repositories to infer tech stack, architecture, dependencies, and conventions.
-Proposes integration strategies: adapters, wrappers, or migration plans.
-Validates compatibility and adjusts generation prompts so new features align with legacy patterns.
-"""
-
 import os
 import re
 from typing import List, Dict, Any, Optional, Set
@@ -19,30 +12,6 @@ from ..models import LegacyAnalysis, AgentType
 
 
 class LegacyAnalyzerAgent:
-    """
-    Agent that analyzes legacy repositories and proposes integration strategies.
-    
-    Architecture:
-    ┌─────────────────────────────────────────────────────────────────────────┐
-    │                    Legacy Analyzer Agent                                 │
-    │  ┌────────────────────────────────────────────────────────────────────┐ │
-    │  │                      Repository Scanner                             │ │
-    │  │  ┌─────────────┐  ┌──────────────┐  ┌───────────────────────────┐  │ │
-    │  │  │ File Parser │  │ Dependency   │  │ Convention Detector       │  │ │
-    │  │  │             │  │ Analyzer     │  │                           │  │ │
-    │  │  └─────────────┘  └──────────────┘  └───────────────────────────┘  │ │
-    │  └────────────────────────────────────────────────────────────────────┘ │
-    │                                                                          │
-    │  ┌────────────────────────────────────────────────────────────────────┐ │
-    │  │                   Architecture Analyzer                             │ │
-    │  │  ┌─────────────┐  ┌──────────────┐  ┌───────────────────────────┐  │ │
-    │  │  │Pattern Det. │  │ Layer Map    │  │ Integration Planner       │  │ │
-    │  │  └─────────────┘  └──────────────┘  └───────────────────────────┘  │ │
-    │  └────────────────────────────────────────────────────────────────────┘ │
-    └─────────────────────────────────────────────────────────────────────────┘
-    """
-    
-    # File patterns for tech stack detection
     TECH_PATTERNS = {
         # Python
         'requirements.txt': {'language': 'Python', 'package_manager': 'pip'},
@@ -111,11 +80,8 @@ class LegacyAnalyzerAgent:
     }
     
     def __init__(self):
-        """Initialize the Legacy Analyzer Agent."""
         self.agent_type = AgentType.LEGACY_ANALYZER
-        
         self.llm = get_llm(temperature=0.1)
-        
         self.crew_agent = Agent(
             role="Legacy System Analyst",
             goal="Analyze legacy codebases and propose integration strategies",
@@ -128,25 +94,13 @@ class LegacyAnalyzerAgent:
         ) if self.llm else None
     
     def analyze_repository(self, repo_path: str) -> LegacyAnalysis:
-        """
-        Analyze a legacy repository.
-        
-        Args:
-            repo_path: Path to the repository
-            
-        Returns:
-            LegacyAnalysis with findings
-        """
         if not os.path.exists(repo_path):
             return LegacyAnalysis(
                 repo_path=repo_path,
                 compatibility_issues=["Repository path does not exist"]
             )
         
-        # Scan repository structure
         files = self._scan_files(repo_path)
-        
-        # Detect tech stack
         tech_stack = self._detect_tech_stack(repo_path, files)
         
         # Analyze dependencies
@@ -177,15 +131,6 @@ class LegacyAnalyzerAgent:
         )
     
     def _scan_files(self, repo_path: str) -> List[str]:
-        """
-        Scan repository for all files.
-        
-        Args:
-            repo_path: Repository path
-            
-        Returns:
-            List of file paths relative to repo
-        """
         files = []
         exclude_dirs = {'.git', 'node_modules', '__pycache__', 'venv', '.venv', 
                        'dist', 'build', '.idea', '.vscode'}
@@ -204,16 +149,6 @@ class LegacyAnalyzerAgent:
         return files
     
     def _detect_tech_stack(self, repo_path: str, files: List[str]) -> Dict[str, str]:
-        """
-        Detect the technology stack used in the repository.
-        
-        Args:
-            repo_path: Repository path
-            files: List of files in repo
-            
-        Returns:
-            Dictionary of tech stack components
-        """
         tech_stack = {}
         
         # Check for known config files
@@ -253,7 +188,6 @@ class LegacyAnalyzerAgent:
         return tech_stack
     
     def _detect_npm_frameworks(self, package_json_path: str) -> Dict[str, str]:
-        """Detect frameworks from package.json."""
         frameworks = {}
         
         try:
@@ -282,7 +216,6 @@ class LegacyAnalyzerAgent:
         return frameworks
     
     def _detect_pip_frameworks(self, requirements_path: str) -> Dict[str, str]:
-        """Detect frameworks from requirements.txt."""
         frameworks = {}
         
         try:
@@ -301,7 +234,6 @@ class LegacyAnalyzerAgent:
         return frameworks
     
     def _detect_database(self, files: List[str], repo_path: str) -> Optional[str]:
-        """Detect database from project files."""
         # Check for database configuration files
         db_indicators = {
             'postgresql': ['postgres', 'psycopg2', 'pg_'],
@@ -330,16 +262,6 @@ class LegacyAnalyzerAgent:
     
     def _analyze_dependencies(self, repo_path: str, 
                              tech_stack: Dict[str, str]) -> List[Dict[str, str]]:
-        """
-        Analyze project dependencies.
-        
-        Args:
-            repo_path: Repository path
-            tech_stack: Detected tech stack
-            
-        Returns:
-            List of dependency information
-        """
         dependencies = []
         
         # Parse requirements.txt
@@ -355,7 +277,6 @@ class LegacyAnalyzerAgent:
         return dependencies
     
     def _parse_requirements(self, req_path: str) -> List[Dict[str, str]]:
-        """Parse Python requirements.txt."""
         dependencies = []
         
         try:
@@ -377,7 +298,6 @@ class LegacyAnalyzerAgent:
         return dependencies
     
     def _parse_package_json(self, pkg_path: str) -> List[Dict[str, str]]:
-        """Parse package.json dependencies."""
         dependencies = []
         
         try:
@@ -404,15 +324,6 @@ class LegacyAnalyzerAgent:
         return dependencies
     
     def _detect_architecture(self, files: List[str]) -> str:
-        """
-        Detect the architecture pattern used.
-        
-        Args:
-            files: List of files in repo
-            
-        Returns:
-            Detected architecture pattern name
-        """
         # Convert file paths to directory names
         dirs = set()
         for f in files:
@@ -438,17 +349,6 @@ class LegacyAnalyzerAgent:
     
     def _detect_conventions(self, repo_path: str, files: List[str],
                            tech_stack: Dict[str, str]) -> List[str]:
-        """
-        Detect coding conventions used in the repository.
-        
-        Args:
-            repo_path: Repository path
-            files: List of files
-            tech_stack: Detected tech stack
-            
-        Returns:
-            List of detected conventions
-        """
         conventions = []
         
         # Check for linter configurations
@@ -501,7 +401,6 @@ class LegacyAnalyzerAgent:
         return conventions
     
     def _detect_naming_convention(self, repo_path: str, files: List[str]) -> Optional[str]:
-        """Detect file naming conventions."""
         python_files = [f for f in files if f.endswith('.py')]
         js_files = [f for f in files if f.endswith(('.js', '.ts', '.jsx', '.tsx'))]
         
@@ -523,17 +422,6 @@ class LegacyAnalyzerAgent:
     def _propose_integration_strategy(self, tech_stack: Dict[str, str],
                                       architecture: str,
                                       dependencies: List[Dict[str, str]]) -> str:
-        """
-        Propose integration strategy based on analysis.
-        
-        Args:
-            tech_stack: Detected tech stack
-            architecture: Detected architecture
-            dependencies: List of dependencies
-            
-        Returns:
-            Integration strategy description
-        """
         strategies = []
         
         # Based on architecture
@@ -571,16 +459,6 @@ class LegacyAnalyzerAgent:
     
     def _check_compatibility(self, tech_stack: Dict[str, str],
                             dependencies: List[Dict[str, str]]) -> List[str]:
-        """
-        Check for compatibility issues.
-        
-        Args:
-            tech_stack: Detected tech stack
-            dependencies: List of dependencies
-            
-        Returns:
-            List of compatibility issues
-        """
         issues = []
         
         # Check for outdated Python version indicators
@@ -615,16 +493,6 @@ class LegacyAnalyzerAgent:
     
     def generate_migration_plan(self, analysis: LegacyAnalysis,
                                target_stack: Dict[str, str]) -> str:
-        """
-        Generate a migration plan to target tech stack.
-        
-        Args:
-            analysis: Legacy analysis results
-            target_stack: Target technology stack
-            
-        Returns:
-            Migration plan as string
-        """
         plan = ["Migration Plan", "=" * 50, ""]
         
         # Compare stacks

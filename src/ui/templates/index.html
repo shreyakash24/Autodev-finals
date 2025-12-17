@@ -846,6 +846,44 @@
                                 Case-sensitive project name
                             </div>
                         </div>
+                        <hr style="opacity:0.2; margin:1rem 0;">
+
+                        <h3 style="font-size:0.95rem;">📦 Commit Generated Code</h3>
+
+                        <div>
+                            <label style="font-size:0.9rem;">Repository Name</label>
+                            <input type="text" id="adoRepo"
+                                placeholder="repo-name"
+                                style="width:100%; padding:0.6rem;">
+                        </div>
+
+                        <div>
+                            <label style="font-size:0.9rem;">Target Branch</label>
+                            <input type="text" id="adoBranch"
+                                placeholder="refs/heads/generated-code"
+                                value="refs/heads/generated-code"
+                                style="width:100%; padding:0.6rem;">
+                        </div>
+
+                        <div>
+                            <label style="font-size:0.9rem;">Commit Message</label>
+                            <input type="text" id="adoCommitMessage"
+                                placeholder="Generated code from pipeline"
+                                style="width:100%; padding:0.6rem;">
+                        </div>
+
+                        <button type="button"
+                                class="btn btn-success"
+                                onclick="commitToAdo()"
+                                style="margin-top:0.5rem;">
+                            🚀 Commit Artifacts to Azure DevOps
+                        </button>
+
+                        <div>
+                            <span id="adoCommitStatus"
+                                style="font-size:0.85rem;"></span>
+                        </div>
+
                         <button type="button" class="btn btn-primary" onclick="extractFromAdo()">🔗 Fetch Stories from Azure DevOps</button>
                         <div>
                             <span id="adoStatus" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
@@ -2237,7 +2275,88 @@ The server rejected the request because the HTTP method is not allowed for this 
                 }
             }
             
+            addEvent('Finalizing pipeline (adding project structure files)...', 'info');
+            try {
+                const response = await fetch('/api/pipeline/finalize', {
+                    method: 'POST'
+                });
+                const result = await safeJsonParse(response);
+                if (result.success) {
+                    addEvent(`✅ Pipeline finalized: ${result.artifacts_count} total artifacts`, 'success');
+                    await loadPipelineStatus();
+                } else {
+                    addEvent(`⚠️ Finalization had issues: ${result.error}`, 'warning');
+                }
+            } catch (error) {
+                addEvent(`⚠️ Finalization failed: ${error.message}`, 'warning');
+            }
+            
             addEvent('All tasks completed', 'success');
+        }
+        async function commitToAdo() {
+            const orgUrl = document.getElementById('adoOrgUrl').value.trim();
+            const pat = document.getElementById('adoPat').value.trim();
+            const project = document.getElementById('adoProject').value.trim();
+            const repo = document.getElementById('adoRepo').value.trim();
+            const branch = document.getElementById('adoBranch').value.trim();
+            const message = document.getElementById('adoCommitMessage').value.trim()
+                            || "Generated code commit";
+        
+            const status = document.getElementById('adoCommitStatus');
+        
+            if (!orgUrl || !pat || !project || !repo) {
+                status.textContent = "❌ Missing required fields";
+                status.style.color = "var(--error)";
+                return;
+            }
+        
+            if (!artifacts || artifacts.length === 0) {
+                status.textContent = "❌ No artifacts to commit";
+                status.style.color = "var(--error)";
+                return;
+            }
+        
+            status.textContent = "⏳ Committing artifacts...";
+            status.style.color = "var(--info)";
+            addEvent("🚀 Committing generated code to Azure DevOps...", "info");
+        
+            try {
+                const response = await fetch("/api/ado/commit", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        org_url: orgUrl,
+                        pat: pat,
+                        project: project,
+                        repo_name: repo,
+                        branch: branch,
+                        commit_message: message
+                    })
+                });
+        
+                const result = await safeJsonParse(response);
+        
+                if (result.success) {
+                    status.textContent = "✅ Commit successful";
+                    status.style.color = "var(--success)";
+                    addEvent(`✅ Code committed to ${repo} (${branch})`, "success");
+        
+                    showModal("Commit Successful", `
+                        <p><strong>✅ Code pushed successfully</strong></p>
+                        <p>Repository: <code>${repo}</code></p>
+                        <p>Branch: <code>${branch}</code></p>
+                        <p>Commit ID: <code>${result.commit.commit_id}</code></p>
+                    `);
+                } else {
+                    throw new Error(result.error || "Commit failed");
+                }
+        
+            } catch (err) {
+                status.textContent = "❌ Commit failed";
+                status.style.color = "var(--error)";
+                addEvent(`❌ Commit failed: ${err.message}`, "error");
+                showModal("Commit Failed", escapeHtml(err.message));
+            }
         }
         
         async function createCheckpoint() {

@@ -21,14 +21,22 @@ class BaseCodingAgent:
         self.agent_type = agent_type
         self.llm = get_llm(temperature=0.2)
         
-        self.crew_agent = Agent(
-            role=role,
-            goal=goal,
-            backstory=backstory,
-            verbose=True,
-            allow_delegation=False,
-            llm=self.llm
-        ) if self.llm else None
+        # Create CrewAI agent if LLM is available
+        self.crew_agent = None
+        if self.llm:
+            try:
+                self.crew_agent = Agent(
+                    role=role,
+                    goal=goal,
+                    backstory=backstory,
+                    verbose=True,
+                    allow_delegation=False,
+                    llm=self.llm
+                )
+            except Exception as e:
+                print(f"Warning: Failed to create CrewAI agent: {e}")
+                print("Will use template-based generation instead.")
+                self.crew_agent = None
     
     def _create_artifact(self, file_path: str, content: str, 
                         artifact_type: str, language: str,
@@ -116,7 +124,7 @@ Return ONLY the complete TypeScript code for src/App.tsx, no explanations.""",
         )
         
         try:
-            app_result = app_task.execute()
+            app_result = app_task.execute_sync()
             app_content = str(app_result) if app_result else self._generate_app_component(requirements)
             
             artifacts.append(self._create_artifact(
@@ -165,7 +173,7 @@ Return ONLY the complete TypeScript component code, no explanations.""",
             )
             
             try:
-                component_result = component_task.execute()
+                component_result = component_task.execute_sync()
                 component_content = str(component_result) if component_result else self._generate_feature_component(story_title, [])
             except Exception as e:
                 print(f"Error generating component for story '{story_title}': {e}")
@@ -987,7 +995,8 @@ Return ONLY the complete Python code for app/api/routes.py, no explanations.""",
         )
         
         try:
-            routes_result = routes_task.execute()
+            routes_result = routes_task.execute_sync()
+            print("LLM output:", routes_result)
             routes_content = str(routes_result) if routes_result else self._generate_routes(requirements)
             
             artifacts.append(self._create_artifact(
@@ -1026,7 +1035,7 @@ Return ONLY the complete Python code for app/schemas.py, no explanations.""",
         )
         
         try:
-            schemas_result = schemas_task.execute()
+            schemas_result = schemas_task.execute_sync()
             schemas_content = str(schemas_result) if schemas_result else self._generate_schemas(requirements)
             
             artifacts.append(self._create_artifact(
@@ -1665,7 +1674,7 @@ Return ONLY the complete Python code for app/models/base.py, no explanations."""
         )
         
         try:
-            models_result = models_task.execute()
+            models_result = models_task.execute_sync()
             models_content = str(models_result) if models_result else self._generate_models(requirements)
             
             artifacts.append(self._create_artifact(
@@ -1675,6 +1684,7 @@ Return ONLY the complete Python code for app/models/base.py, no explanations."""
                 "python",
                 "SQLAlchemy base model and mixins"
             ))
+            print("LLM output:", models_result)
         except Exception as e:
             print(f"Error generating models with LLM: {e}")
             models_content = self._generate_models(requirements)

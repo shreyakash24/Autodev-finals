@@ -1,8 +1,3 @@
-"""
-Flask Application for the Agentic Code Generation System
-Provides REST API and WebSocket for real-time updates
-"""
-
 import os
 import json
 import io
@@ -21,12 +16,9 @@ from ..agents import (
     FrontendCodingAgent, BackendCodingAgent, DatabaseCodingAgent,
     TestingAgent, LegacyAnalyzerAgent, PromptRefinerAgent, MonitoringAgent
 )
+from ..utils.llm_config import get_llm_info
 
-
-# Global state for pipeline (shared across all requests)
 current_pipeline = {"state": None}
-
-# Global agent instances (shared across all requests)
 ado_agent = None
 orchestrator = None
 frontend_agent = None
@@ -40,25 +32,32 @@ basedir = os.path.abspath(os.path.dirname(__file__))
     
 
 def create_app():
-    """Create and configure the Flask application."""
     global ado_agent, orchestrator, frontend_agent, backend_agent, database_agent
     global testing_agent, legacy_agent, prompt_agent, monitoring_agent
     
     app = Flask(__name__, static_folder=os.path.join(basedir, 'static'),
         template_folder=os.path.join(basedir, 'templates'))
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key')
-    
-    # Flask 3.x configuration: ensure JSON responses use proper Content-Type
-    # This prevents issues with Azure DevOps and other strict API consumers
     app.config['JSONIFY_MIMETYPE'] = 'application/json'
     
-    # Enable CORS
     CORS(app, origins="*")
-    
-    # Initialize SocketIO for real-time updates
     socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
     
-    # Initialize agents
+    # Check if LLM is configured
+    llm_info = get_llm_info()
+    if not llm_info['available']:
+        print("\n" + "="*70)
+        print("WARNING: LLM is NOT working!")
+        print("The system will generate STATIC TEMPLATE CODE instead of AI code.")
+        print(f"  - Provider: {llm_info['provider']}")
+        print(f"  - API Key Set: {'YES' if llm_info['api_key_set'] else 'NO'}")
+        print(f"  - Library Installed: {'YES' if llm_info['library_installed'] else 'NO'}")
+        if not llm_info['api_key_set'] or not llm_info['library_installed']:
+            print("\nRun: pip install -r requirements.txt and set API key in .env")
+        print("="*70 + "\n")
+    else:
+        print(f"✓ LLM configured: {llm_info['provider']} - {llm_info['model']}\n")
+    
     ado_agent = ADOConnectorAgent()
     orchestrator = OrchestratorAgent()
     frontend_agent = FrontendCodingAgent()
@@ -69,22 +68,17 @@ def create_app():
     prompt_agent = PromptRefinerAgent()
     monitoring_agent = MonitoringAgent()
     
-    # Register monitoring callback for WebSocket broadcasts
     def broadcast_event(event):
         socketio.emit('pipeline_event', event.to_dict())
     
     monitoring_agent.subscribe(broadcast_event)
     
-    # ============== REST API Routes ==============
-    
     @app.route('/', methods=['GET'])
     def index():
-        """Serve the main dashboard."""
         return render_template('index.html')
     
     @app.route('/api/health')
     def health():
-        """Health check endpoint."""
         return jsonify({
             "status": "healthy",
             "version": "1.0.0",
@@ -93,7 +87,6 @@ def create_app():
     
     @app.route('/api/debug/pipeline')
     def debug_pipeline():
-        """Debug endpoint to check pipeline state."""
         if not current_pipeline["state"]:
             return jsonify({"error": "No pipeline state"})
         
@@ -105,21 +98,8 @@ def create_app():
             "same_reference": orchestrator.pipeline_state == current_pipeline["state"]
         })
     
-    # -------------- ADO Connector Routes --------------
-    
     @app.route('/api/ado/parse', methods=['POST'])
     def parse_ado_data():
-        """
-        Parse ADO data (JSON or CSV) and extract user stories.
-        
-        Request body:
-        {
-            "data": "<json or csv string>",
-            "format": "json" | "csv",
-            "tech_stack": {...} (optional),
-            "constraints": {...} (optional)
-        }
-        """
         try:
             body = request.get_json(force=True, silent=False)
             
@@ -158,18 +138,6 @@ def create_app():
     
     @app.route('/api/ado/fetch', methods=['POST'])
     def fetch_from_ado():
-        """
-        Fetch work items directly from Azure DevOps.
-        
-        Request body:
-        {
-            "org_url": "https://dev.azure.com/your-org",
-            "pat": "your_personal_access_token",
-            "project": "your_project_name",
-            "query": "optional WIQL query",
-            "work_item_ids": ["optional", "list", "of", "ids"]
-        }
-        """
         try:
             body = request.get_json(force=True, silent=False)
             
@@ -195,16 +163,13 @@ def create_app():
                 response.headers['Content-Type'] = 'application/json'
                 return response, 400
             
-            # Create a temporary ADO agent with provided credentials
             from ..agents.ado_connector import ADOConnectorAgent
             temp_agent = ADOConnectorAgent(ado_url=org_url, pat=pat)
             temp_agent.project = project
             
-            # Fetch work items
             app.logger.info(f"[ADO] Fetching work items from {org_url}/{project}")
             stories = temp_agent.fetch_work_items_from_ado(query=query, work_item_ids=work_item_ids)
             
-            # Normalize to canonical spec
             spec = temp_agent.normalize_to_spec(stories)
             
             app.logger.info(f"[ADO] ✓ Fetched {len(stories)} work items")
@@ -228,19 +193,60 @@ def create_app():
             response.headers['Content-Type'] = 'application/json'
             return response, 400
     
-    # Azure DevOps commit endpoints removed - artifacts are now displayed and exported instead
-    # @app.route('/api/ado/commit', methods=['POST'])
-    # def commit_to_ado():
-    #     # REMOVED: This endpoint was used to commit artifacts to Azure DevOps
-    #     # Now artifacts are displayed on UI and can be exported
-    #     pass
-    
-    # Azure DevOps commit-current endpoint removed - artifacts are now displayed and exported instead
-    # @app.route('/api/ado/commit-current', methods=['POST'])
-    # def commit_current_artifacts():
-    #     # REMOVED: This endpoint was used to commit current pipeline artifacts to Azure DevOps
-    #     # Now artifacts are displayed on UI and can be exported
-    #     pass
+    @app.route('/api/ado/commit', methods=['POST'])
+    def commit_to_ado():
+   
+        try:
+            print("Pipeline state:", current_pipeline.get("state"))
+
+            body = request.get_json(force=True)
+            print("Pipeline state:", current_pipeline.get("state"))
+
+            org_url = body.get("org_url")
+            project = body.get("project")
+            repo_name = body.get("repo_name")
+            pat = body.get("pat")
+            branch = body.get("branch", "refs/heads/generated-code")
+            commit_message = body.get("commit_message", "Generated code commit")
+
+            if not all([org_url, project, repo_name, pat]):
+                return jsonify({
+                    "success": False,
+                    "error": "Missing org_url, project, repo_name or pat"
+                }), 400
+
+            artifacts = [
+                a for a in current_pipeline["state"].artifacts
+                if a.content and a.content.strip()
+            ]
+
+            if not artifacts:
+                return jsonify({
+                    "success": False,
+                    "error": "No valid artifacts to commit"
+                }), 400
+
+            from ..agents.ado_connector import ADOConnectorAgent
+            ado = ADOConnectorAgent(ado_url=org_url, pat=pat, project=project)
+            
+            result = ado.commit_code_to_ado_repo(
+                repo_name=repo_name,
+                branch=branch,
+                artifacts=artifacts,
+                commit_message=commit_message
+            )
+
+            return jsonify({
+                "success": True,
+                "commit": result
+            })
+
+        except Exception as e:
+            app.logger.error(f"[ADO Commit] Failed: {e}", exc_info=True)
+            return jsonify({
+                "success": False,
+                "error": str(e)
+            }), 500
     
     # -------------- Pipeline Routes --------------
     
@@ -255,7 +261,6 @@ def create_app():
         }
         """
         try:
-            # Get JSON with explicit handling for Flask 3.x
             try:
                 body = request.get_json(force=True, silent=False)
             except Exception as json_error:
@@ -287,7 +292,6 @@ def create_app():
             
             app.logger.info(f"[Pipeline] Creating pipeline with {len(spec_data.get('user_stories', []))} user stories")
             
-            # Reconstruct spec from dict with error handling
             stories = []
             for s in spec_data.get('user_stories', []):
                 try:
@@ -317,7 +321,6 @@ def create_app():
                 project_name=spec_data.get('project_name', 'Generated Code')
             )
             
-            # Build pipeline
             app.logger.info("[Pipeline] Building pipeline from spec")
             pipeline = orchestrator.build_pipeline(spec)
             current_pipeline["state"] = pipeline
@@ -325,7 +328,6 @@ def create_app():
             
             app.logger.info(f"[Pipeline] ✓ Pipeline created with {len(pipeline.tasks)} tasks")
             
-            # Create response without charset in Content-Type
             response = jsonify({
                 "success": True,
                 "pipeline": pipeline.to_dict()
@@ -357,7 +359,7 @@ def create_app():
     
     @app.route('/api/pipeline/status', methods=['GET'])
     def get_pipeline_status():
-        """Get current pipeline status."""
+
         if not current_pipeline["state"]:
             return jsonify({
                 "success": False,
@@ -372,7 +374,7 @@ def create_app():
     
     @app.route('/api/pipeline/tasks')
     def get_tasks():
-        """Get all tasks in the pipeline."""
+
         if not current_pipeline["state"]:
             return jsonify({"tasks": []})
         
@@ -382,7 +384,7 @@ def create_app():
     
     @app.route('/api/pipeline/ready-tasks')
     def get_ready_tasks():
-        """Get tasks that are ready to execute."""
+
         ready = orchestrator.get_ready_tasks()
         return jsonify({
             "tasks": [t.to_dict() for t in ready]
@@ -390,26 +392,44 @@ def create_app():
     
     @app.route('/api/pipeline/dependency-graph')
     def get_dependency_graph():
-        """Get the task dependency graph."""
+
         return jsonify({
             "graph": orchestrator.get_dependency_graph()
         })
     
     @app.route('/api/pipeline/quality-gate')
     def check_quality_gate():
-        """Check quality gate status."""
         return jsonify(orchestrator.check_quality_gate())
+    
+    @app.route('/api/pipeline/finalize', methods=['POST'])
+    def finalize_pipeline():
+        if not current_pipeline["state"]:
+            return jsonify({"success": False, "error": "No pipeline"}), 404
+        
+        try:
+            from ..crew import CodeGenerationCrew
+            crew = CodeGenerationCrew(auto_mode=False)
+            crew.current_pipeline = current_pipeline["state"]
+            crew.current_spec = current_pipeline["state"].spec
+            crew.orchestrator = orchestrator
+            
+            crew._add_project_structure_files()
+            
+            return jsonify({
+                "success": True,
+                "message": "Project structure files added",
+                "artifacts_count": len(current_pipeline["state"].artifacts)
+            })
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": str(e)
+            }), 500
     
     # -------------- Task Execution Routes --------------
     
     @app.route('/api/task/<task_id>/execute', methods=['POST'])
     def execute_task(task_id):
-        """
-        Execute a specific task.
-        
-        This is a simplified execution that generates code based on task type.
-        In a full implementation, this would involve CrewAI task execution.
-        """
         if not current_pipeline["state"]:
             return jsonify({"success": False, "error": "No pipeline"}), 404
         
@@ -422,12 +442,14 @@ def create_app():
             return jsonify({"success": False, "error": "Task not found"}), 404
         
         try:
-            # Update task status
             orchestrator.update_task_status(task_id, TaskStatus.IN_PROGRESS)
             
-            # Execute based on agent type
             artifacts = []
             requirements = task.input_data.get('requirements', {})
+            
+            # Add user_stories from task.input_data to requirements dict so agents can access them
+            if 'user_stories' in task.input_data:
+                requirements['user_stories'] = task.input_data['user_stories']
             
             app.logger.info(f"Executing task {task_id} with agent type {task.agent_type.value}")
             
@@ -448,25 +470,10 @@ def create_app():
             
             app.logger.info(f"Generated {len(artifacts)} artifacts for task {task_id}")
             
-            # Validate artifacts are not empty
-            if not artifacts:
-                app.logger.warning(f"Task {task_id} generated no artifacts")
-            else:
-                empty_artifacts = []
-                for artifact in artifacts:
-                    if not artifact.content or artifact.content.strip() == '':
-                        empty_artifacts.append(artifact.file_path)
-                        app.logger.warning(f"Artifact {artifact.file_path} has empty content")
-                
-                if empty_artifacts:
-                    app.logger.warning(f"Task {task_id} generated {len(empty_artifacts)} empty artifacts: {empty_artifacts}")
-            
-            # Add artifacts to pipeline
             for artifact in artifacts:
                 orchestrator.add_artifact(artifact)
                 app.logger.info(f"Added artifact: {artifact.file_path} ({len(artifact.content)} chars)")
             
-            # Update task status
             orchestrator.update_task_status(
                 task_id, 
                 TaskStatus.COMPLETED,
@@ -476,8 +483,7 @@ def create_app():
             return jsonify({
                 "success": True,
                 "artifacts": [a.to_dict() for a in artifacts],
-                "artifacts_count": len(artifacts),
-                "empty_artifacts_count": len([a for a in artifacts if not a.content or a.content.strip() == ''])
+                "artifacts_count": len(artifacts)
             })
             
         except Exception as e:
@@ -493,9 +499,8 @@ def create_app():
     
     @app.route('/api/task/<task_id>/rerun', methods=['POST'])
     def rerun_task(task_id):
-        """Re-run a specific task."""
+
         def execute(task):
-            # Simplified re-execution
             task.status = TaskStatus.COMPLETED
             return task
         
@@ -515,7 +520,7 @@ def create_app():
     
     @app.route('/api/artifacts')
     def get_artifacts():
-        """Get all generated artifacts."""
+
         if not current_pipeline["state"]:
             return jsonify({"artifacts": []})
         
@@ -525,7 +530,7 @@ def create_app():
     
     @app.route('/api/artifact/<artifact_id>')
     def get_artifact(artifact_id):
-        """Get a specific artifact."""
+
         if not current_pipeline["state"]:
             return jsonify({"error": "No pipeline"}), 404
         
@@ -540,7 +545,7 @@ def create_app():
     
     @app.route('/api/artifact/<artifact_id>/diff')
     def get_artifact_diff(artifact_id):
-        """Get diff for an artifact."""
+
         diff = monitoring_agent.get_artifact_diff(artifact_id)
         if diff:
             return jsonify(diff)
@@ -548,9 +553,8 @@ def create_app():
     
     @app.route('/api/artifact/<artifact_id>/regenerate', methods=['POST'])
     def regenerate_artifact(artifact_id):
-        """Regenerate a specific artifact."""
+
         def regenerate():
-            # Simplified regeneration
             if not current_pipeline["state"]:
                 raise Exception("No pipeline")
             
@@ -561,7 +565,6 @@ def create_app():
             if not artifact:
                 raise Exception("Artifact not found")
             
-            # In real implementation, would re-execute the generating agent
             return artifact
         
         result = monitoring_agent.regenerate_artifact(artifact_id, regenerate)
@@ -578,7 +581,7 @@ def create_app():
     
     @app.route('/api/artifacts/export', methods=['GET'])
     def export_all_artifacts():
-        """Export all artifacts as a ZIP file."""
+
         if not current_pipeline["state"]:
             return jsonify({"error": "No pipeline with artifacts to export"}), 404
         
@@ -587,15 +590,12 @@ def create_app():
         if not artifacts:
             return jsonify({"error": "No artifacts generated yet"}), 404
         
-        # Create a ZIP file in memory
         memory_file = io.BytesIO()
         with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
-            # Add all code artifacts
             for artifact in artifacts:
                 if artifact.content and artifact.content.strip():
                     zf.writestr(artifact.file_path, artifact.content)
             
-            # Add a manifest file with metadata about all artifacts
             manifest = {
                 "generated_at": datetime.now().isoformat(),
                 "total_artifacts": len(artifacts),
@@ -613,20 +613,16 @@ def create_app():
                     }
                     manifest["artifacts"].append(artifact_info)
             
-            # Add manifest.json
             zf.writestr('MANIFEST.json', json.dumps(manifest, indent=2))
             
-            # Add README with instructions
             readme_content = f"""# Generated Code Package
 
 Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 Total files: {len([a for a in artifacts if a.content and a.content.strip()])}
 
-## Contents
 
 This package contains all the generated code artifacts from the Agentic Code Generation System.
 
-### Files Generated:
 """
             for artifact in artifacts:
                 if artifact.content and artifact.content.strip():
@@ -636,14 +632,12 @@ This package contains all the generated code artifacts from the Agentic Code Gen
             
             readme_content += """
 
-## Usage
 
 1. Extract this ZIP file to your desired location
 2. Review the MANIFEST.json file for details about each artifact
 3. Integrate the generated code into your project
 4. Run tests to ensure everything works correctly
 
-## Support
 
 For more information about the Agentic Code Generation System, 
 please refer to the project documentation.
@@ -664,7 +658,7 @@ please refer to the project documentation.
     
     @app.route('/api/artifacts/export-with-docs', methods=['GET'])
     def export_all_artifacts_with_docs():
-        """Export all artifacts with comprehensive documentation."""
+
         if not current_pipeline["state"]:
             return jsonify({"error": "No pipeline with artifacts to export"}), 404
         
@@ -673,33 +667,26 @@ please refer to the project documentation.
         if not artifacts:
             return jsonify({"error": "No artifacts generated yet"}), 404
         
-        # Create a ZIP file in memory with enhanced documentation
         memory_file = io.BytesIO()
         with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
-            # Add all code artifacts in a 'src' directory
             for artifact in artifacts:
                 if artifact.content and artifact.content.strip():
                     zf.writestr(f"src/{artifact.file_path}", artifact.content)
             
-            # Create comprehensive documentation
             docs_dir = "docs/"
             
-            # Create artifact documentation for each file
             for artifact in artifacts:
                 if artifact.content and artifact.content.strip():
                     doc_filename = artifact.file_path.replace('/', '_').replace('.', '_') + '.md'
                     doc_content = f"""# {artifact.file_path}
 
-## Metadata
 - **Type**: {artifact.artifact_type if hasattr(artifact, 'artifact_type') else 'N/A'}
 - **Language**: {artifact.language if hasattr(artifact, 'language') else 'N/A'}
 - **Size**: {len(artifact.content)} bytes
 - **Generated**: {artifact.created_at.isoformat() if hasattr(artifact, 'created_at') else 'N/A'}
 
-## Documentation
 {artifact.documentation if hasattr(artifact, 'documentation') and artifact.documentation else 'No documentation available.'}
 
-## Code Preview
 ```
 {artifact.content[:500]}
 {'...' if len(artifact.content) > 500 else ''}
@@ -707,20 +694,17 @@ please refer to the project documentation.
 """
                     zf.writestr(f"{docs_dir}{doc_filename}", doc_content)
             
-            # Create main documentation index
             index_content = f"""# Generated Code Documentation
 
 Package generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 Total artifacts: {len([a for a in artifacts if a.content and a.content.strip()])}
 
-## Structure
 
 - `src/` - Contains all generated source code files
 - `docs/` - Contains documentation for each artifact
 - `MANIFEST.json` - Metadata about all artifacts
 - `README.md` - Quick start guide
 
-## Artifacts
 
 """
             for artifact in artifacts:
@@ -734,7 +718,6 @@ Total artifacts: {len([a for a in artifacts if a.content and a.content.strip()])
             
             zf.writestr(f"{docs_dir}INDEX.md", index_content)
             
-            # Add manifest
             manifest = {
                 "generated_at": datetime.now().isoformat(),
                 "export_type": "with_documentation",
@@ -752,12 +735,10 @@ Total artifacts: {len([a for a in artifacts if a.content and a.content.strip()])
             }
             zf.writestr('MANIFEST.json', json.dumps(manifest, indent=2))
             
-            # Add README
             readme = """# Generated Code Package (With Documentation)
 
 This package contains all generated code along with comprehensive documentation.
 
-## Directory Structure
 
 ```
 ├── src/              # All source code files
@@ -767,14 +748,12 @@ This package contains all generated code along with comprehensive documentation.
 └── README.md         # This file
 ```
 
-## Quick Start
 
 1. Extract this ZIP file
 2. Review `docs/INDEX.md` for an overview
 3. Check individual file documentation in `docs/`
 4. Source code is in the `src/` directory
 
-## Integration
 
 To integrate this code into your project:
 1. Copy files from `src/` to your project structure
@@ -782,7 +761,6 @@ To integrate this code into your project:
 3. Run your build system
 4. Execute tests
 
-## Documentation
 
 Each generated file has corresponding documentation in the `docs/` directory
 that explains its purpose, structure, and usage.
@@ -803,7 +781,7 @@ that explains its purpose, structure, and usage.
     
     @app.route('/api/artifact/<artifact_id>/export', methods=['GET'])
     def export_single_artifact(artifact_id):
-        """Export a single artifact as a downloadable file."""
+
         if not current_pipeline["state"]:
             return jsonify({"error": "No pipeline"}), 404
         
@@ -818,15 +796,12 @@ that explains its purpose, structure, and usage.
         if not artifact.content or not artifact.content.strip():
             return jsonify({"error": "Artifact has no content"}), 404
         
-        # Create file in memory
         memory_file = io.BytesIO()
         memory_file.write(artifact.content.encode('utf-8'))
         memory_file.seek(0)
         
-        # Get just the filename from the path
         filename = artifact.file_path.split('/')[-1]
         
-        # Determine mimetype based on extension
         mimetype = 'text/plain'
         if filename.endswith('.py'):
             mimetype = 'text/x-python'
@@ -850,21 +825,18 @@ that explains its purpose, structure, and usage.
     
     @app.route('/api/pipeline/export-complete', methods=['GET'])
     def export_complete_pipeline():
-        """Export the complete pipeline output including all results, artifacts, tests, and reports."""
+
         if not current_pipeline["state"]:
             return jsonify({"error": "No pipeline to export"}), 404
         
         pipeline = current_pipeline["state"]
         
-        # Create a comprehensive ZIP package
         memory_file = io.BytesIO()
         with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
-            # 1. Add all generated code artifacts
             code_artifacts = [a for a in pipeline.artifacts if a.content and a.content.strip()]
             for artifact in code_artifacts:
                 zf.writestr(f"code/{artifact.file_path}", artifact.content)
             
-            # 2. Add pipeline execution report
             pipeline_report = {
                 "pipeline_id": pipeline.id,
                 "status": pipeline.status.value,
@@ -891,13 +863,11 @@ that explains its purpose, structure, and usage.
             }
             zf.writestr('reports/pipeline_execution.json', json.dumps(pipeline_report, indent=2))
             
-            # 3. Add test reports
             if pipeline.test_reports:
                 for i, test_report in enumerate(pipeline.test_reports):
                     report_data = test_report.to_dict()
                     zf.writestr(f'reports/test_report_{i+1}.json', json.dumps(report_data, indent=2))
                 
-                # Add summary of all tests
                 test_summary = {
                     "total_test_reports": len(pipeline.test_reports),
                     "overall_stats": {
@@ -909,21 +879,17 @@ that explains its purpose, structure, and usage.
                 }
                 zf.writestr('reports/test_summary.json', json.dumps(test_summary, indent=2))
             
-            # 4. Add test plans
             if pipeline.test_plans:
                 for i, test_plan in enumerate(pipeline.test_plans):
                     plan_data = test_plan.to_dict()
                     zf.writestr(f'test_plans/test_plan_{i+1}.json', json.dumps(plan_data, indent=2))
             
-            # 5. Add original specification
             if pipeline.spec:
                 spec_data = pipeline.spec.to_dict()
                 zf.writestr('specification/requirements.json', json.dumps(spec_data, indent=2))
                 
-                # Create readable version
                 spec_readable = f"""# Project Specification
 
-## User Stories ({len(pipeline.spec.user_stories)})
 
 """
                 for story in pipeline.spec.user_stories:
@@ -944,7 +910,6 @@ that explains its purpose, structure, and usage.
                 
                 zf.writestr('specification/requirements.md', spec_readable)
             
-            # 6. Add pipeline logs
             if pipeline.logs:
                 logs_content = ""
                 for log_entry in pipeline.logs:
@@ -954,7 +919,6 @@ that explains its purpose, structure, and usage.
                     logs_content += f"[{timestamp}] [{level}] {message}\n"
                 zf.writestr('logs/pipeline.log', logs_content)
             
-            # 7. Create comprehensive manifest
             manifest = {
                 "export_type": "complete_pipeline_output",
                 "generated_at": datetime.now().isoformat(),
@@ -983,18 +947,15 @@ that explains its purpose, structure, and usage.
             }
             zf.writestr('MANIFEST.json', json.dumps(manifest, indent=2))
             
-            # 8. Create comprehensive README
             readme = f"""# Complete Pipeline Output Package
 
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 Pipeline ID: {pipeline.id}
 Status: {pipeline.status.value}
 
-## Package Contents
 
 This package contains the complete output from the Agentic Code Generation pipeline execution.
 
-### Directory Structure
 
 ```
 ├── code/                    # All generated source code ({len(code_artifacts)} files)
@@ -1011,7 +972,6 @@ This package contains the complete output from the Agentic Code Generation pipel
 └── README.md                # This file
 ```
 
-## Pipeline Summary
 
 - **Total Tasks:** {len(pipeline.tasks)}
 - **Completed Tasks:** {sum(1 for t in pipeline.tasks if t.status.value == 'completed')}
@@ -1023,7 +983,6 @@ This package contains the complete output from the Agentic Code Generation pipel
                 total_tests = sum(r.total_tests for r in pipeline.test_reports)
                 passed_tests = sum(r.passed_tests for r in pipeline.test_reports)
                 readme += f"""
-## Test Results
 
 - **Total Tests:** {total_tests}
 - **Passed:** {passed_tests}
@@ -1033,14 +992,12 @@ This package contains the complete output from the Agentic Code Generation pipel
             
             readme += """
 
-## Quick Start
 
 1. **Review the Code:** Check the `code/` directory for all generated files
 2. **Check Test Reports:** Review `reports/` for testing results
 3. **Read Specification:** See `specification/` for requirements
 4. **Review Execution:** Check `reports/pipeline_execution.json` for task details
 
-## Integration
 
 To integrate this code into your project:
 
@@ -1050,7 +1007,6 @@ To integrate this code into your project:
 4. Check specification for requirements traceability
 5. Review logs for any warnings or issues
 
-## Support
 
 This package was generated by the Agentic Code Generation System.
 For questions or issues, refer to the pipeline execution report.
@@ -1099,7 +1055,6 @@ For questions or issues, refer to the pipeline execution report.
                 type_map.get(test_type, TestType.UNIT)
             )
             
-            # Add report to pipeline
             orchestrator.add_test_report(report)
             
             return jsonify({
@@ -1115,7 +1070,7 @@ For questions or issues, refer to the pipeline execution report.
     
     @app.route('/api/tests/reports')
     def get_test_reports():
-        """Get all test reports."""
+
         if not current_pipeline["state"]:
             return jsonify({"reports": []})
         
@@ -1125,7 +1080,7 @@ For questions or issues, refer to the pipeline execution report.
     
     @app.route('/api/tests/summary')
     def get_test_summary():
-        """Get test results summary."""
+
         return jsonify(monitoring_agent.get_test_results_summary())
     
     # -------------- Legacy Analysis Routes --------------
@@ -1260,12 +1215,12 @@ For questions or issues, refer to the pipeline execution report.
     
     @app.route('/api/monitoring/dashboard')
     def get_dashboard():
-        """Get dashboard data."""
+
         return jsonify(monitoring_agent.get_dashboard_data())
     
     @app.route('/api/monitoring/events')
     def get_events():
-        """Get recent events."""
+
         limit = request.args.get('limit', 100, type=int)
         events = monitoring_agent.get_events(limit=limit)
         return jsonify({
@@ -1274,7 +1229,7 @@ For questions or issues, refer to the pipeline execution report.
     
     @app.route('/api/monitoring/logs')
     def get_logs():
-        """Get pipeline logs."""
+
         level = request.args.get('level')
         limit = request.args.get('limit', 100, type=int)
         logs = monitoring_agent.get_pipeline_logs(level=level, limit=limit)
@@ -1282,7 +1237,7 @@ For questions or issues, refer to the pipeline execution report.
     
     @app.route('/api/monitoring/checkpoints')
     def get_checkpoints():
-        """Get all checkpoints."""
+
         return jsonify({
             "checkpoints": [c.to_dict() for c in monitoring_agent.checkpoints]
         })
@@ -1312,7 +1267,7 @@ For questions or issues, refer to the pipeline execution report.
     
     @app.route('/api/monitoring/rollback/<checkpoint_id>', methods=['POST'])
     def rollback(checkpoint_id):
-        """Rollback to a checkpoint."""
+
         result = monitoring_agent.rollback_to_checkpoint(checkpoint_id)
         
         if result:
@@ -1349,7 +1304,6 @@ For questions or issues, refer to the pipeline execution report.
             enabled = body.get('enabled', True)
             ado_config = body.get('ado_config', {})
             
-            # Store in global state (in production, use proper state management)
             app.config['AUTO_MODE'] = enabled
             app.config['ADO_CONFIG'] = ado_config
             
@@ -1372,7 +1326,7 @@ For questions or issues, refer to the pipeline execution report.
     
     @app.route('/api/config/auto-mode', methods=['GET'])
     def get_auto_mode():
-        """Get current auto mode configuration."""
+
         return jsonify({
             "auto_mode": app.config.get('AUTO_MODE', True),
             "ado_configured": bool(
@@ -1417,13 +1371,12 @@ For questions or issues, refer to the pipeline execution report.
                 response.headers['Content-Type'] = 'application/json'
                 return response, 400
             
-            # Import and create crew with auto mode (no ADO config needed)
             from ..crew import CodeGenerationCrew
             crew = CodeGenerationCrew(auto_mode=True, ado_config=None)
+            crew.orchestrator = orchestrator
             
             app.logger.info("[AutoPipeline] Starting automated pipeline execution")
             
-            # Reconstruct spec
             stories = []
             for s in spec_data.get('user_stories', []):
                 try:
@@ -1452,7 +1405,6 @@ For questions or issues, refer to the pipeline execution report.
                 project_name=spec_data.get('project_name', 'Generated Code')
             )
             
-            # Step 1: Analyze legacy if path provided
             if legacy_repo_path:
                 app.logger.info(f"[AutoPipeline] Analyzing legacy repository: {legacy_repo_path}")
                 try:
@@ -1461,15 +1413,15 @@ For questions or issues, refer to the pipeline execution report.
                 except Exception as e:
                     app.logger.warning(f"[AutoPipeline] Legacy analysis failed: {e}")
             
-            # Step 2: Build pipeline
             app.logger.info("[AutoPipeline] Building pipeline")
             pipeline = crew.build_pipeline(spec)
             current_pipeline["state"] = pipeline
             monitoring_agent.set_pipeline(pipeline)
             
-            # Step 3: Execute pipeline (without auto-commit)
             app.logger.info("[AutoPipeline] Executing pipeline")
             result_pipeline = crew.execute_pipeline(parallel=True, auto_commit=False)
+            
+            current_pipeline["state"] = result_pipeline
             
             app.logger.info("[AutoPipeline] Pipeline execution complete")
             
@@ -1498,20 +1450,19 @@ For questions or issues, refer to the pipeline execution report.
     
     @socketio.on('connect')
     def handle_connect():
-        """Handle client connection."""
+
         emit('connected', {'status': 'connected'})
-        # Send current state
         if current_pipeline["state"]:
             emit('pipeline_state', current_pipeline["state"].to_dict())
     
     @socketio.on('subscribe_events')
     def handle_subscribe():
-        """Subscribe to event stream."""
+
         emit('subscribed', {'status': 'subscribed to events'})
     
     @socketio.on('get_status')
     def handle_get_status():
-        """Get current status via WebSocket."""
+
         emit('status', {
             'task_summary': monitoring_agent.get_task_status_summary(),
             'test_summary': monitoring_agent.get_test_results_summary()
@@ -1520,7 +1471,6 @@ For questions or issues, refer to the pipeline execution report.
     return app, socketio
 
 
-# Create app instance
 app, socketio = create_app()
 
 

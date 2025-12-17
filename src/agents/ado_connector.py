@@ -22,7 +22,7 @@ from crewai import Agent, Task as CrewTask
 
 from ..utils.llm_config import get_llm
 
-from ..models import UserStory, CanonicalSpec, AgentType
+from ..models import PipelineState, TestPlan, UserStory, CanonicalSpec, AgentType
 
 # Constants for Azure DevOps validation
 INVALID_PATH_CHARS = ['<', '>', ':', '"', '|', '?', '*']  # Azure DevOps restricted characters
@@ -54,7 +54,7 @@ class ADOConnectorAgent:
     └─────────────────────────────────────────────────────────────┘
     """
     
-    def __init__(self, ado_url: Optional[str] = None, pat: Optional[str] = None):
+    def __init__(self, ado_url: Optional[str] = None, pat: Optional[str] = None, project: Optional[str] = None):
         """
         Initialize the ADO Connector Agent.
         
@@ -64,7 +64,7 @@ class ADOConnectorAgent:
         """
         self.ado_url = ado_url or os.getenv('ADO_ORG_URL', '')
         self.pat = pat or os.getenv('ADO_PAT', '')
-        self.project = os.getenv('ADO_PROJECT', '')
+        self.project =project or os.getenv('ADO_PROJECT', '')
         
         # Initialize CrewAI agent
         self.llm = get_llm(temperature=0.1)
@@ -580,59 +580,50 @@ class ADOConnectorAgent:
                 "- You have network access to Azure DevOps"
             )
     
-    def commit_code_to_ado_repo(self, artifacts: List[Dict[str, Any]], 
-                                 repo_name: str,
-                                 branch: str = "refs/heads/generated-code",
-                                 commit_message: str = "Add generated code from Agentic Code Generator") -> Dict[str, Any]:
+    def commit_code_to_ado_repo(
+        self,
+        artifacts: list,
+        repo_name: str,
+        branch: str = "refs/heads/generated-code",
+        commit_message: str = "Add generated code from Agentic Code Generator"
+    ) -> dict:
         """
         Commit generated code artifacts to an Azure DevOps Git repository.
-        
+
         Args:
-            artifacts: List of artifacts to commit (each with 'file_path' and 'content')
+            artifacts: List of GeneratedArtifact objects to commit
             repo_name: Name of the Azure Repos repository
-            branch: Branch to commit to (default: refs/heads/generated-code)
+            branch: Branch to commit to
             commit_message: Commit message
-            
+
         Returns:
-            Dict with commit information
-            
-        Raises:
-            ValueError: If credentials are missing or commit fails
+            Dict with commit info
         """
-        if not requests:
-            raise ValueError(
-                "The 'requests' library is required for Azure DevOps API integration.\n"
-                "Install it with: pip install requests"
-            )
-        
+        import base64
+        import requests
+
+        print("endpoint hit")
+
         if not self.ado_url or not self.pat or not self.project:
             raise ValueError("Azure DevOps credentials are required for code commits")
-        
+
         if not artifacts:
             raise ValueError("No artifacts to commit")
-        
-        # Validate artifacts before committing
-        valid_artifacts, validation_warnings = self.validate_artifacts_for_commit(artifacts)
-        
-        # Print validation warnings
-        if validation_warnings:
-            print(f"[ADO] Validation warnings:")
-            for warning in validation_warnings:
-                print(f"[ADO]   - {warning}")
-        
-        if not valid_artifacts:
-            raise ValueError("No valid artifacts after validation. All artifacts have issues. Check validation warnings above.")
-        
-        print(f"[ADO] {len(valid_artifacts)} of {len(artifacts)} artifacts passed validation")
-        
-        # Use validated artifacts for commit
-        artifacts = valid_artifacts
-        
+
+        # Deduplicate artifacts by file_path
+        unique_artifacts = {}
+        for artifact in artifacts:
+            file_path = getattr(artifact, "file_path", "").strip()
+            if not file_path:
+                continue
+            unique_artifacts[file_path] = artifact  # last one wins
+
+        artifacts = list(unique_artifacts.values())
+        print(f"[ADO] {len(artifacts)} unique artifacts after deduplication")
+
         print(f"[ADO] Committing {len(artifacts)} validated artifacts to {repo_name} on {branch}")
-        
-        # Create authorization header with Azure DevOps required headers
-        # CRITICAL: Azure DevOps Git Push API strictly validates Content-Type and rejects
-        # requests with charset parameters. Must use exactly 'application/json' without charset.
+
+        # Authorization header
         auth_string = f":{self.pat}"
         auth_bytes = base64.b64encode(auth_string.encode('utf-8')).decode('utf-8')
         headers = {
@@ -640,9 +631,9 @@ class ADOConnectorAgent:
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         }
-        
+
         try:
-            # Get repository ID
+            # Get repository info
             repo_url = f"{self.ado_url}/{self.project}/_apis/git/repositories/{repo_name}?api-version=7.0"
             print(f"[ADO] Fetching repository info from: {repo_url}")
             response = requests.get(repo_url, headers=headers, timeout=30)
@@ -650,189 +641,71 @@ class ADOConnectorAgent:
             repo_data = response.json()
             repo_id = repo_data['id']
             print(f"[ADO] Repository ID: {repo_id}")
-            
-            # Get the latest commit on the target branch (or default branch if target doesn't exist)
-            old_object_id = None
-            branch_exists = False
-            
-            try:
-                refs_url = f"{self.ado_url}/{self.project}/_apis/git/repositories/{repo_id}/refs?filter={branch}&api-version=7.0"
-                print(f"[ADO] Checking branch: {branch}")
+
+            # Resolve branch commit
+            branch_ref = branch.replace("refs/heads/", "")
+            refs_url = f"{self.ado_url}/{self.project}/_apis/git/repositories/{repo_id}/refs?filter=heads/{branch_ref}&api-version=7.0"
+            response = requests.get(refs_url, headers=headers, timeout=30)
+            response.raise_for_status()
+            refs_data = response.json()
+            if refs_data.get('value'):
+                old_object_id = refs_data['value'][0]['objectId']
+                branch_exists = True
+                print(f"[ADO] Branch exists with commit: {old_object_id}")
+            else:
+                # Branch doesn't exist, use default branch
+                default_branch_ref = repo_data['defaultBranch'].replace("refs/heads/", "")
+                refs_url = f"{self.ado_url}/{self.project}/_apis/git/repositories/{repo_id}/refs?filter=heads/{default_branch_ref}&api-version=7.0"
                 response = requests.get(refs_url, headers=headers, timeout=30)
                 response.raise_for_status()
                 refs_data = response.json()
-                
-                if refs_data.get('value') and len(refs_data['value']) > 0:
-                    old_object_id = refs_data['value'][0]['objectId']
-                    branch_exists = True
-                    print(f"[ADO] Branch exists with commit: {old_object_id}")
+                old_object_id = refs_data['value'][0]['objectId'] if refs_data.get('value') else None
+                branch_exists = False
+                if old_object_id:
+                    print(f"[ADO] Default branch commit: {old_object_id}")
                 else:
-                    # Branch doesn't exist, get default branch to branch from
-                    default_branch = repo_data.get('defaultBranch', 'refs/heads/main')
-                    print(f"[ADO] Branch doesn't exist, branching from: {default_branch}")
-                    refs_url = f"{self.ado_url}/{self.project}/_apis/git/repositories/{repo_id}/refs?filter={default_branch}&api-version=7.0"
-                    response = requests.get(refs_url, headers=headers, timeout=30)
-                    response.raise_for_status()
-                    refs_data = response.json()
-                    
-                    if refs_data.get('value') and len(refs_data['value']) > 0:
-                        old_object_id = refs_data['value'][0]['objectId']
-                        print(f"[ADO] Default branch commit: {old_object_id}")
-            except (requests.exceptions.RequestException, KeyError, IndexError) as e:
-                print(f"[ADO] Warning: Could not get branch ref: {str(e)}")
-                # If we can't get the branch ref, use null object ID to create new branch
-                old_object_id = None
-            
-            # Use null object ID if we couldn't find a branch
-            if not old_object_id:
-                old_object_id = "0000000000000000000000000000000000000000"
-                print(f"[ADO] Creating new branch from scratch")
-            
-            # Build changes array with proper validation
+                    old_object_id = "0000000000000000000000000000000000000000"
+
+            # Build changes
             changes = []
             for i, artifact in enumerate(artifacts):
-                file_path = artifact.get('file_path', '').strip()
-                content = artifact.get('content', '').strip()
-                
-                # File path should already be validated and start with /
-                # But double-check to be safe
+                file_path = getattr(artifact, "file_path", "").strip()
+                content = getattr(artifact, "content", "").strip()
                 if not file_path.startswith('/'):
                     file_path = '/' + file_path
-                
-                # Create change object following Azure DevOps API spec
-                change = {
+
+                changes.append({
                     "changeType": "add",
-                    "item": {
-                        "path": file_path
-                    },
-                    "newContent": {
-                        "content": content,
-                        "contentType": "rawtext"
-                    }
-                }
-                changes.append(change)
+                    "item": {"path": file_path},
+                    "newContent": {"content": content, "contentType": "rawtext"}
+                })
                 print(f"[ADO] Adding file {i+1}/{len(artifacts)}: {file_path} ({len(content)} chars)")
-            
-            if not changes:
-                raise ValueError("No valid changes to commit after filtering empty content")
-            
-            # Validate commit message (Azure DevOps requirement)
-            if not commit_message or not commit_message.strip():
-                commit_message = "Generated code commit"
-            
-            # Ensure commit message is valid UTF-8 and not too long
-            try:
-                commit_message.encode('utf-8')
-            except UnicodeEncodeError:
-                commit_message = "Generated code commit"
-            
-            # Azure DevOps commit message limit
-            if len(commit_message) > MAX_COMMIT_MESSAGE_LENGTH:
-                commit_message = commit_message[:MAX_COMMIT_MESSAGE_LENGTH-3] + "..."
-            
-            # Create push payload following Azure DevOps Git Push API specification EXACTLY
-            # API Reference: https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pushes/create
+
+            # Build push payload
             push_payload = {
-                "refUpdates": [
-                    {
-                        "name": branch,
-                        "oldObjectId": old_object_id
-                    }
-                ],
-                "commits": [
-                    {
-                        "comment": commit_message,
-                        "changes": changes
-                    }
-                ]
+                "refUpdates": [{"name": branch, "oldObjectId": old_object_id}],
+                "commits": [{"comment": commit_message, "changes": changes}]
             }
-            
-            # Validate payload structure to avoid 400 errors
-            if not isinstance(push_payload.get("refUpdates"), list) or len(push_payload["refUpdates"]) == 0:
-                raise ValueError("Invalid refUpdates in payload")
-            
-            if not isinstance(push_payload.get("commits"), list) or len(push_payload["commits"]) == 0:
-                raise ValueError("Invalid commits in payload")
-            
-            if not isinstance(push_payload["commits"][0].get("changes"), list) or len(push_payload["commits"][0]["changes"]) == 0:
-                raise ValueError("Invalid changes in payload")
-            
-            # Log payload structure (without full content)
-            print(f"[ADO] Push payload structure validated:")
-            print(f"[ADO]   - refUpdates: {len(push_payload['refUpdates'])} update(s)")
-            print(f"[ADO]   - commits: {len(push_payload['commits'])} commit(s)")
-            print(f"[ADO]   - changes: {len(changes)} file(s)")
-            print(f"[ADO]   - branch: {branch}")
-            print(f"[ADO]   - oldObjectId: {old_object_id}")
-            
-            # Push to repository
+
+            print(f"[ADO] Push payload ready: {len(changes)} file(s), branch {branch}, oldObjectId {old_object_id}")
+
+            # Push
             push_url = f"{self.ado_url}/{self.project}/_apis/git/repositories/{repo_id}/pushes?api-version=7.0"
-            print(f"[ADO] Pushing to: {push_url}")
-            print(f"[ADO] Request headers: Content-Type={headers.get('Content-Type')}, Accept={headers.get('Accept')}")
-            
             response = requests.post(push_url, json=push_payload, headers=headers, timeout=60)
-            
-            # Check for errors with detailed 400 error handling
-            if response.status_code != 201:
-                error_detail = ""
-                error_message = ""
-                
-                try:
-                    error_data = response.json()
-                    error_detail = json.dumps(error_data, indent=2)
-                    error_message = error_data.get('message', '')
-                except:
-                    error_detail = response.text
-                
-                print(f"[ADO] ✗ Push failed with status {response.status_code}")
-                print(f"[ADO] Error response: {error_detail}")
-                
-                # Special handling for 400 Bad Request
-                if response.status_code == 400:
-                    print(f"\n[ADO] ========================================")
-                    print(f"[ADO] 400 BAD REQUEST DIAGNOSTICS")
-                    print(f"[ADO] ========================================")
-                    print(f"[ADO] This error means the request format is invalid.")
-                    print(f"[ADO] Common causes:")
-                    print(f"[ADO]   1. Invalid request headers (Content-Type, Accept)")
-                    print(f"[ADO]   2. Invalid file paths (must start with '/', no special chars)")
-                    print(f"[ADO]   3. Empty content in files")
-                    print(f"[ADO]   4. Invalid commit message format")
-                    print(f"[ADO]   5. Invalid oldObjectId (branch reference)")
-                    print(f"[ADO]   6. Malformed JSON in payload")
-                    print(f"[ADO] ")
-                    print(f"[ADO] Request headers sent:")
-                    print(f"[ADO]   - Content-Type: {headers.get('Content-Type')}")
-                    print(f"[ADO]   - Accept: {headers.get('Accept')}")
-                    print(f"[ADO]   - Authorization: Basic <token>")
-                    print(f"[ADO] ")
-                    print(f"[ADO] Validated payload structure:")
-                    print(f"[ADO]   - Branch: {branch}")
-                    print(f"[ADO]   - Old Object ID: {old_object_id}")
-                    print(f"[ADO]   - Number of files: {len(changes)}")
-                    print(f"[ADO]   - Commit message length: {len(commit_message)} chars")
-                    print(f"[ADO] ")
-                    print(f"[ADO] Sample file paths being committed:")
-                    for i, change in enumerate(changes[:5]):
-                        print(f"[ADO]   {i+1}. {change['item']['path']}")
-                    if len(changes) > 5:
-                        print(f"[ADO]   ... and {len(changes) - 5} more")
-                    print(f"[ADO] ========================================\n")
-                
-                raise requests.exceptions.HTTPError(
-                    f"Azure DevOps returned status {response.status_code}. "
-                    f"Response: {error_detail}"
-                )
-            
-            response.raise_for_status()
+
+            try:
+                response.raise_for_status()
+            except requests.exceptions.HTTPError as e:
+                status_code = getattr(e.response, "status_code", "unknown")
+                error_text = getattr(e.response, "text", str(e))
+                print(f"[ADO] Push failed with status {status_code}\n{error_text}")
+                raise ValueError(f"Failed to commit code to Azure DevOps (Status {status_code}).\n{error_text}")
+
             push_result = response.json()
-            
-            commit_id = None
-            if push_result.get('commits') and len(push_result['commits']) > 0:
-                commit_id = push_result['commits'][0].get('commitId')
-            
+            commit_id = push_result.get('commits', [{}])[0].get('commitId')
+
             print(f"[ADO] ✓ Successfully pushed {len(changes)} files, commit: {commit_id}")
-            
+
             return {
                 "success": True,
                 "commit_id": commit_id,
@@ -842,157 +715,10 @@ class ADOConnectorAgent:
                 "url": push_result.get('url', ''),
                 "push_id": push_result.get('pushId')
             }
-            
-        except requests.exceptions.HTTPError as e:
-            error_msg = str(e)
-            status_code = e.response.status_code if hasattr(e, 'response') else 'unknown'
-            
-            # Try to extract more details from response
-            try:
-                if hasattr(e, 'response'):
-                    error_data = e.response.json()
-                    if 'message' in error_data:
-                        error_msg = error_data['message']
-            except:
-                pass
-            
-            # Provide specific guidance based on status code
-            if status_code == 400:
-                raise ValueError(
-                    f"Failed to commit code to Azure DevOps (Status 400 - Bad Request).\n\n"
-                    f"Error: {error_msg}\n\n"
-                    "This error means the request format is invalid. Common causes:\n"
-                    "1. Invalid request headers (Content-Type or Accept header issues)\n"
-                    "2. Invalid file paths - must start with '/' and cannot contain: < > : \" | ? *\n"
-                    "3. File paths cannot end with '.' or space\n"
-                    "4. Empty file content - all files must have content\n"
-                    "5. Invalid UTF-8 encoding in file content\n"
-                    "6. File content contains null bytes\n"
-                    "7. Invalid branch reference (oldObjectId)\n"
-                    "8. Empty or malformed commit message\n\n"
-                    "Headers sent: Content-Type=application/json, Accept=application/json\n"
-                    "All artifacts were validated before commit. Check the diagnostics above."
-                )
-            else:
-                raise ValueError(
-                    f"Failed to commit code to Azure DevOps (Status {status_code}): {error_msg}\n\n"
-                    "Common issues:\n"
-                    "- Repository name is incorrect\n"
-                    "- Personal Access Token missing 'Code (Read & Write)' permission\n"
-                    "- No permission to push to the repository\n"
-                    "- Branch is protected\n"
-                    "- Network connectivity issues"
-                )
+
         except requests.exceptions.RequestException as e:
-            raise ValueError(
-                f"Failed to connect to Azure DevOps: {str(e)}\n\n"
-                "Please verify:\n"
-                "- Organization URL is correct\n"
-                "- Network connectivity to Azure DevOps\n"
-                "- PAT is valid and not expired"
-            )
-    
-    def validate_artifacts_for_commit(self, artifacts: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[str]]:
-        """
-        Validate artifacts before committing to ensure they meet Azure DevOps requirements.
-        This is critical to avoid 400 Bad Request errors.
-        
-        Azure DevOps Git Push API Requirements:
-        - File paths must start with '/'
-        - File paths cannot contain: < > : " | ? *
-        - File paths cannot end with '.' or space
-        - Content must be valid UTF-8
-        - Content cannot be empty
-        - Files cannot exceed 100MB
-        - changeType must be 'add', 'edit', or 'delete'
-        - contentType must be 'rawtext' or 'base64encoded'
-        
-        Args:
-            artifacts: List of artifacts to validate
-            
-        Returns:
-            Tuple of (valid_artifacts, validation_warnings)
-        """
-        valid_artifacts = []
-        warnings = []
-        
-        for i, artifact in enumerate(artifacts):
-            artifact_warnings = []
-            
-            # Check required fields
-            if 'file_path' not in artifact:
-                warnings.append(f"Artifact {i}: Missing 'file_path' field - skipping")
-                continue
-            
-            if 'content' not in artifact:
-                warnings.append(f"Artifact {i}: Missing 'content' field - skipping")
-                continue
-            
-            file_path = str(artifact.get('file_path', '')).strip()
-            content = str(artifact.get('content', '')).strip()
-            
-            # Validate file path
-            if not file_path:
-                warnings.append(f"Artifact {i}: Empty file_path - skipping")
-                continue
-            
-            # CRITICAL: Azure DevOps path validation to avoid 400 errors
-            # Check for invalid characters in path (Azure DevOps restriction)
-            found_invalid = [char for char in INVALID_PATH_CHARS if char in file_path]
-            if found_invalid:
-                warnings.append(f"Artifact {i} ({file_path}): Contains invalid characters {found_invalid} - skipping")
-                continue
-            
-            # Path cannot end with '.' or space (Azure DevOps restriction)
-            if file_path.endswith('.') or file_path.endswith(' '):
-                warnings.append(f"Artifact {i} ({file_path}): Path ends with '.' or space - skipping")
-                continue
-            
-            # Path components cannot be '.' or '..' (security)
-            path_parts = file_path.split('/')
-            if '.' in path_parts or '..' in path_parts:
-                warnings.append(f"Artifact {i} ({file_path}): Path contains '.' or '..' components - skipping")
-                continue
-            
-            # Ensure path starts with / (Azure DevOps requirement)
-            if not file_path.startswith('/'):
-                file_path = '/' + file_path
-                artifact_warnings.append(f"Added leading '/' to path: {file_path}")
-            
-            # Validate content
-            if not content:
-                warnings.append(f"Artifact {i} ({file_path}): Empty content - skipping")
-                continue
-            
-            # Validate UTF-8 encoding (Azure DevOps requirement)
-            try:
-                content.encode('utf-8')
-            except UnicodeEncodeError:
-                warnings.append(f"Artifact {i} ({file_path}): Invalid UTF-8 encoding - skipping")
-                continue
-            
-            # Check content size (Azure DevOps file size limit)
-            content_size_mb = len(content.encode('utf-8')) / (1024 * 1024)
-            if content_size_mb > MAX_FILE_SIZE_MB:
-                warnings.append(f"Artifact {i} ({file_path}): Content too large ({content_size_mb:.2f}MB > {MAX_FILE_SIZE_MB}MB limit) - skipping")
-                continue
-            
-            # Validate content doesn't contain null bytes (can cause issues)
-            if '\x00' in content:
-                warnings.append(f"Artifact {i} ({file_path}): Content contains null bytes - skipping")
-                continue
-            
-            # Update artifact with validated values
-            validated_artifact = artifact.copy()
-            validated_artifact['file_path'] = file_path
-            validated_artifact['content'] = content
-            valid_artifacts.append(validated_artifact)
-            
-            if artifact_warnings:
-                warnings.extend([f"Artifact {i} ({file_path}): {w}" for w in artifact_warnings])
-        
-        return valid_artifacts, warnings
-    
+            raise ValueError(f"Failed to connect to Azure DevOps: {str(e)}")
+
     def create_test_plan(self, test_plan: 'TestPlan') -> Dict[str, Any]:
         """
         Create a test plan in Azure DevOps.

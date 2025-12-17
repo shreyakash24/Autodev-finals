@@ -1,7 +1,4 @@
-"""
-CrewAI Crew Configuration
-Configures the multi-agent crew for the agentic code generation system
-"""
+
 
 from typing import List, Dict, Any, Optional
 import os
@@ -18,45 +15,8 @@ from .models import CanonicalSpec, PipelineState, Task, TaskStatus, GeneratedArt
 
 
 class CodeGenerationCrew:
-    """
-    Main crew that orchestrates all agents for code generation.
-    
-    Architecture:
-    ┌─────────────────────────────────────────────────────────────────────────┐
-    │                     Code Generation Crew                                 │
-    │                                                                          │
-    │  ┌────────────────────────────────────────────────────────────────────┐ │
-    │  │                      Orchestrator                                   │ │
-    │  └────────────────────────────────────────────────────────────────────┘ │
-    │                              │                                           │
-    │          ┌──────────────────┼──────────────────┐                        │
-    │          │                  │                  │                        │
-    │          ▼                  ▼                  ▼                        │
-    │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
-    │  │  ADO Agent   │  │ Coding Agents│  │Testing Agent │                  │
-    │  └──────────────┘  └──────────────┘  └──────────────┘                  │
-    │                            │                  │                         │
-    │                            ▼                  ▼                         │
-    │                    ┌──────────────┐  ┌──────────────┐                  │
-    │                    │Legacy Analyze│  │Prompt Refine │                  │
-    │                    └──────────────┘  └──────────────┘                  │
-    │                                                                          │
-    │  ┌────────────────────────────────────────────────────────────────────┐ │
-    │  │                      Monitoring Agent                               │ │
-    │  └────────────────────────────────────────────────────────────────────┘ │
-    └─────────────────────────────────────────────────────────────────────────┘
-    """
     
     def __init__(self, auto_mode: bool = True, ado_config: Optional[Dict[str, str]] = None):
-        """
-        Initialize the code generation crew.
-        
-        Args:
-            auto_mode: Enable automatic integration of all agents (default: True)
-            ado_config: Optional Azure DevOps configuration for auto-commit
-                       {'org_url': '', 'pat': '', 'project': '', 'repo_name': ''}
-        """
-        # Initialize all agents
         self.ado_agent = ADOConnectorAgent()
         self.orchestrator = OrchestratorAgent()
         self.frontend_agent = FrontendCodingAgent()
@@ -174,18 +134,11 @@ class CodeGenerationCrew:
         # Determine if we should auto-commit
         should_auto_commit = auto_commit if auto_commit is not None else self.auto_mode
         
-        # Execute the pipeline
         if parallel:
             result = self._execute_parallel()
         else:
             result = self._execute_sequential()
         
-        # Generate comprehensive E2E tests for the complete application
-        if self.auto_mode:
-            print("[Pipeline] Generating comprehensive end-to-end tests...")
-            self._generate_comprehensive_e2e_tests()
-        
-        # Add project structure files
         print("[Pipeline] Adding project structure files...")
         self._add_project_structure_files()
         
@@ -247,6 +200,10 @@ class CodeGenerationCrew:
             artifacts = []
             requirements = task.input_data.get('requirements', {})
             
+            # Add user_stories from task.input_data to requirements dict so agents can access them
+            if 'user_stories' in task.input_data:
+                requirements['user_stories'] = task.input_data['user_stories']
+            
             # Apply legacy analysis patterns if available
             if self.auto_mode and self.legacy_analysis:
                 requirements = self._apply_legacy_patterns(requirements, task)
@@ -263,32 +220,14 @@ class CodeGenerationCrew:
                 artifacts.extend(self.frontend_agent.generate_forms(requirements))
                 artifacts.extend(self.frontend_agent.add_accessibility([]))
                 
-                # Generate frontend tests dynamically
-                if self.auto_mode:
-                    print(f"[Pipeline] Generating frontend tests for task {task.id}")
-                    test_artifacts = self._generate_tests_for_artifacts(artifacts, 'frontend')
-                    artifacts.extend(test_artifacts)
-                
             elif task.agent_type.value == 'backend_coder':
                 artifacts = self.backend_agent.generate_api_contracts(requirements)
                 artifacts.extend(self.backend_agent.generate_services(requirements))
                 artifacts.extend(self.backend_agent.generate_controllers(requirements))
                 
-                # Generate backend tests dynamically
-                if self.auto_mode:
-                    print(f"[Pipeline] Generating backend tests for task {task.id}")
-                    test_artifacts = self._generate_tests_for_artifacts(artifacts, 'backend')
-                    artifacts.extend(test_artifacts)
-                
             elif task.agent_type.value == 'database_coder':
                 artifacts = self.database_agent.generate_schema(requirements)
                 artifacts.extend(self.database_agent.generate_orm_models(requirements))
-                
-                # Generate database tests dynamically
-                if self.auto_mode:
-                    print(f"[Pipeline] Generating database tests for task {task.id}")
-                    test_artifacts = self._generate_tests_for_artifacts(artifacts, 'database')
-                    artifacts.extend(test_artifacts)
                 
             elif task.agent_type.value == 'testing':
                 task_type = task.input_data.get('task_type', '')
@@ -486,92 +425,7 @@ class CodeGenerationCrew:
         
         return requirements
     
-    def _generate_tests_for_artifacts(self, artifacts: List[GeneratedArtifact], context: str) -> List[GeneratedArtifact]:
-        """
-        Dynamically generate tests for code artifacts using the testing agent.
-        
-        Args:
-            artifacts: List of code artifacts to test
-            context: Context (frontend, backend, database) for test generation
-            
-        Returns:
-            List of test artifacts
-        """
-        test_artifacts = []
-        
-        try:
-            if not artifacts:
-                return test_artifacts
-            
-            # Prepare requirements for test generation
-            test_requirements = {
-                'context': context,
-                'artifact_count': len(artifacts),
-                'artifact_types': list(set(a.artifact_type for a in artifacts)),
-                'files_to_test': [a.file_path for a in artifacts[:5]]  # Limit to first 5 to avoid overwhelming
-            }
-            
-            # Generate appropriate tests based on context
-            if context == 'frontend':
-                # Generate component tests
-                test_artifacts = self.testing_agent.generate_unit_tests(test_requirements, artifacts)
-                print(f"[AutoMode] ✓ Generated {len(test_artifacts)} frontend test files")
-                
-            elif context == 'backend':
-                # Generate API and service tests
-                unit_tests = self.testing_agent.generate_unit_tests(test_requirements, artifacts)
-                integration_tests = self.testing_agent.generate_integration_tests(test_requirements)
-                test_artifacts.extend(unit_tests)
-                test_artifacts.extend(integration_tests)
-                print(f"[AutoMode] ✓ Generated {len(test_artifacts)} backend test files (unit + integration)")
-                
-            elif context == 'database':
-                # Generate model and schema tests
-                test_artifacts = self.testing_agent.generate_unit_tests(test_requirements, artifacts)
-                print(f"[AutoMode] ✓ Generated {len(test_artifacts)} database test files")
-            
-        except Exception as e:
-            print(f"[AutoMode] Test generation failed for {context}: {str(e)}")
-        
-        return test_artifacts
-    
-    def _generate_comprehensive_e2e_tests(self) -> None:
-        """
-        Generate comprehensive end-to-end tests for the complete application.
-        Tests all user stories and critical flows.
-        """
-        try:
-            if not self.current_spec or not self.current_spec.user_stories:
-                print("[AutoMode] No user stories available for E2E test generation")
-                return
-            
-            # Build requirements from user stories for E2E testing
-            e2e_requirements = {
-                'user_stories': [
-                    {
-                        'id': story.id,
-                        'title': story.title,
-                        'description': story.description,
-                        'acceptance_criteria': story.acceptance_criteria
-                    }
-                    for story in self.current_spec.user_stories
-                ],
-                'test_type': 'e2e',
-                'tech_stack': self.current_spec.tech_stack
-            }
-            
-            # Generate E2E tests
-            e2e_artifacts = self.testing_agent.generate_e2e_tests(e2e_requirements)
-            
-            # Add E2E tests to pipeline
-            for artifact in e2e_artifacts:
-                self.orchestrator.add_artifact(artifact)
-            
-            print(f"[AutoMode] ✓ Generated {len(e2e_artifacts)} E2E test files covering {len(self.current_spec.user_stories)} user stories")
-            
-        except Exception as e:
-            print(f"[AutoMode] Comprehensive E2E test generation failed: {str(e)}")
-    
+
     def _add_project_structure_files(self) -> None:
         """Add project structure files (package.json, requirements.txt, README, etc.) to artifacts."""
         if not self.current_pipeline:

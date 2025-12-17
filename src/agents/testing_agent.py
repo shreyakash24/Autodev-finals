@@ -138,7 +138,7 @@ Return ONLY the complete Python pytest code for tests/test_services.py, no expla
         )
         
         try:
-            test_result = unit_test_task.execute()
+            test_result = unit_test_task.execute_sync()
             test_content = str(test_result) if test_result else self._generate_service_tests(requirements)
             
             test_artifacts.append(GeneratedArtifact(
@@ -227,7 +227,7 @@ Return ONLY the complete Python pytest code for tests/test_integration.py, no ex
         )
         
         try:
-            test_result = integration_test_task.execute()
+            test_result = integration_test_task.execute_sync()
             test_content = str(test_result) if test_result else self._generate_integration_test_file(requirements)
             
             test_artifacts.append(GeneratedArtifact(
@@ -303,7 +303,7 @@ Return ONLY the complete TypeScript/JavaScript Playwright code for tests/e2e/tes
         )
         
         try:
-            test_result = e2e_test_task.execute()
+            test_result = e2e_test_task.execute_sync()
             test_content = str(test_result) if test_result else self._generate_playwright_tests(requirements)
             
             test_artifacts.append(GeneratedArtifact(

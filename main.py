@@ -1,26 +1,20 @@
 #!/usr/bin/env python3
-"""
-Main entry point for the Agentic Code Generation System
-"""
 
 import argparse
 import os
 import sys
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
 
 def run_server(host: str = '0.0.0.0', port: int = 5000, debug: bool = True):
-    """Run the Flask web server with UI."""
     from src.ui.app import run_server as start_server
     print(f"Starting Agentic Code Generator server at http://{host}:{port}")
     start_server(host=host, port=port, debug=debug)
 
 
 def run_cli():
-    """Run in CLI mode for direct code generation."""
     from src.crew import create_crew
     
     crew = create_crew()
@@ -30,7 +24,6 @@ def run_cli():
     print("=" * 60)
     print()
     
-    # Interactive menu
     while True:
         print("\nOptions:")
         print("1. Parse requirements (JSON)")
@@ -165,42 +158,23 @@ def run_cli():
 
 
 def main():
-    """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description='Agentic Code Generation System',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''
-Examples:
-  python main.py server              # Start web server
-  python main.py server --port 8080  # Start on different port
-  python main.py cli                 # Interactive CLI mode
-        '''
-    )
+    parser = argparse.ArgumentParser(description='Agentic Code Generation System')
+    subparsers = parser.add_subparsers(dest='command')
     
-    subparsers = parser.add_subparsers(dest='command', help='Command to run')
+    server_parser = subparsers.add_parser('server')
+    server_parser.add_argument('--host', default='0.0.0.0')
+    server_parser.add_argument('--port', type=int, default=5000)
+    server_parser.add_argument('--no-debug', action='store_true')
     
-    # Server command
-    server_parser = subparsers.add_parser('server', help='Start web server')
-    server_parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
-    server_parser.add_argument('--port', type=int, default=5000, help='Port to bind to')
-    server_parser.add_argument('--no-debug', action='store_true', help='Disable debug mode')
-    
-    # CLI command
-    subparsers.add_parser('cli', help='Interactive CLI mode')
+    subparsers.add_parser('cli')
     
     args = parser.parse_args()
     
     if args.command == 'server':
-        run_server(
-            host=args.host,
-            port=args.port,
-            debug=not args.no_debug
-        )
+        run_server(host=args.host, port=args.port, debug=not args.no_debug)
     elif args.command == 'cli':
         run_cli()
     else:
-        # Default to server
-        print("No command specified. Starting server...")
         run_server()
 
 

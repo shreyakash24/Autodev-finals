@@ -30,29 +30,30 @@ def get_llm(temperature: float = 0.2, model: Optional[str] = None):
     if provider == 'groq':
         groq_api_key = os.getenv('GROQ_API_KEY')
         if not groq_api_key:
-            print("Warning: GROQ_API_KEY not set, LLM features disabled")
             return None
         
         try:
+            
             from langchain_groq import ChatGroq
             
             # Default Groq model if not specified
             default_model = 'llama3-70b-8192'
             final_model = model_override or default_model
-            
+            print(f"Using Groq model: {final_model}")
             return ChatGroq(
                 groq_api_key=groq_api_key,
                 model_name=final_model,
                 temperature=temperature
             )
         except ImportError:
-            print("Error: langchain_groq not installed. Install with: pip install langchain-groq")
+            return None
+        except Exception as e:
+            print(f"Error initializing Groq LLM: {e}")
             return None
     
     else:  # Default to OpenAI
         openai_api_key = os.getenv('OPENAI_API_KEY')
         if not openai_api_key:
-            print("Warning: OPENAI_API_KEY not set, LLM features disabled")
             return None
         
         try:
@@ -67,7 +68,10 @@ def get_llm(temperature: float = 0.2, model: Optional[str] = None):
                 temperature=temperature
             )
         except ImportError:
-            print("Error: langchain_openai not installed. Install with: pip install langchain-openai")
+            return None
+        except Exception as e:
+            print(f"Error initializing OpenAI LLM: {e}")
+            return None
             return None
 
 
@@ -84,13 +88,26 @@ def get_llm_info() -> dict:
     if provider == 'groq':
         api_key = os.getenv('GROQ_API_KEY')
         default_model = 'llama3-70b-8192'
+        # Check if library is installed
+        try:
+            import langchain_groq
+            library_installed = True
+        except ImportError:
+            library_installed = False
     else:
         api_key = os.getenv('OPENAI_API_KEY')
         default_model = 'gpt-4'
+        # Check if library is installed
+        try:
+            import langchain_openai
+            library_installed = True
+        except ImportError:
+            library_installed = False
     
     return {
         'provider': provider,
         'model': model or default_model,
-        'available': bool(api_key),
-        'api_key_set': bool(api_key)
+        'available': bool(api_key) and library_installed,
+        'api_key_set': bool(api_key),
+        'library_installed': library_installed
     }
