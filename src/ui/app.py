@@ -401,30 +401,6 @@ def create_app():
     def check_quality_gate():
         return jsonify(orchestrator.check_quality_gate())
     
-    @app.route('/api/pipeline/finalize', methods=['POST'])
-    def finalize_pipeline():
-        if not current_pipeline["state"]:
-            return jsonify({"success": False, "error": "No pipeline"}), 404
-        
-        try:
-            from ..crew import CodeGenerationCrew
-            crew = CodeGenerationCrew(auto_mode=False)
-            crew.current_pipeline = current_pipeline["state"]
-            crew.current_spec = current_pipeline["state"].spec
-            crew.orchestrator = orchestrator
-            
-            crew._add_project_structure_files()
-            
-            return jsonify({
-                "success": True,
-                "message": "Project structure files added",
-                "artifacts_count": len(current_pipeline["state"].artifacts)
-            })
-        except Exception as e:
-            return jsonify({
-                "success": False,
-                "error": str(e)
-            }), 500
     
     # -------------- Task Execution Routes --------------
     
@@ -1337,115 +1313,72 @@ For questions or issues, refer to the pipeline execution report.
     
     @app.route('/api/pipeline/execute-auto', methods=['POST'])
     def execute_pipeline_auto():
-        """
-        Execute the complete automated pipeline including:
-        1. Optional legacy analysis
-        2. Prompt refinement
-        3. Code generation
-        
-        Request body:
-        {
-            "spec": {...},  // CanonicalSpec
-            "legacy_repo_path": "..." (optional)
-        }
-        """
         try:
-            body = request.get_json(force=True, silent=False)
-            
-            if not body:
-                response = jsonify({
-                    "success": False,
-                    "error": "No JSON body provided"
-                })
-                response.headers['Content-Type'] = 'application/json'
-                return response, 400
-            
-            spec_data = body.get('spec')
-            legacy_repo_path = body.get('legacy_repo_path')
-            
-            if not spec_data:
-                response = jsonify({
-                    "success": False,
-                    "error": "spec is required"
-                })
-                response.headers['Content-Type'] = 'application/json'
-                return response, 400
-            
+            body = request.get_json(force=True)
+            if not body or 'spec' not in body:
+                return jsonify({"success": False, "error": "No specification provided"}), 400
+
+            # Use the upgraded CodeGenerationCrew
             from ..crew import CodeGenerationCrew
-            crew = CodeGenerationCrew(auto_mode=True, ado_config=None)
+            crew = CodeGenerationCrew(auto_mode=True)
+            
+            # CRITICAL: Attach the global orchestrator so the UI gets updates
             crew.orchestrator = orchestrator
             
-            app.logger.info("[AutoPipeline] Starting automated pipeline execution")
-            
-            stories = []
-            for s in spec_data.get('user_stories', []):
-                try:
-                    from ..models import UserStory
-                    story = UserStory(
-                        id=s.get('id', ''),
-                        title=s.get('title', ''),
-                        description=s.get('description', ''),
-                        acceptance_criteria=s.get('acceptance_criteria', []),
-                        persona=s.get('persona'),
-                        priority=s.get('priority', 3),
-                        non_functional_hints=s.get('non_functional_hints', []),
-                        tags=s.get('tags', [])
-                    )
-                    stories.append(story)
-                except Exception as e:
-                    app.logger.warning(f"[AutoPipeline] Skipping malformed story: {e}")
-                    continue
-            
-            from ..models import CanonicalSpec
+            # Reconstruct the spec from the body
+            spec_data = body.get('spec')
+            from ..models import CanonicalSpec, UserStory
+            stories = [UserStory(**s) for s in spec_data.get('user_stories', [])]
             spec = CanonicalSpec(
                 user_stories=stories,
                 requirements=spec_data.get('requirements', {}),
                 tech_stack=spec_data.get('tech_stack', {}),
-                constraints=spec_data.get('constraints', {}),
-                project_name=spec_data.get('project_name', 'Generated Code')
+                project_name=spec_data.get('project_name', 'AutoProject')
             )
             
-            if legacy_repo_path:
-                app.logger.info(f"[AutoPipeline] Analyzing legacy repository: {legacy_repo_path}")
-                try:
-                    legacy_analysis = crew.analyze_legacy(legacy_repo_path)
-                    app.logger.info(f"[AutoPipeline] Legacy analysis complete")
-                except Exception as e:
-                    app.logger.warning(f"[AutoPipeline] Legacy analysis failed: {e}")
-            
-            app.logger.info("[AutoPipeline] Building pipeline")
-            pipeline = crew.build_pipeline(spec)
+            crew.current_spec = spec
+            print("[AutoPipeline] Building pipeline...")
+            pipeline = crew.build_pipeline()
             current_pipeline["state"] = pipeline
-            monitoring_agent.set_pipeline(pipeline)
             
-            app.logger.info("[AutoPipeline] Executing pipeline")
-            result_pipeline = crew.execute_pipeline(parallel=True, auto_commit=False)
+            print("[AutoPipeline] Executing...")
+            # This triggers the upgraded logic in crew.py (context injection + scrubbing)
+            result_pipeline = crew.execute_pipeline(parallel=True)
             
-            current_pipeline["state"] = result_pipeline
-            
-            app.logger.info("[AutoPipeline] Pipeline execution complete")
-            
-            response_data = {
+            return jsonify({
                 "success": True,
                 "pipeline": result_pipeline.to_dict(),
                 "artifacts_count": len(result_pipeline.artifacts),
                 "completed_tasks": sum(1 for t in result_pipeline.tasks if t.status.value == 'completed'),
                 "total_tasks": len(result_pipeline.tasks)
-            }
-            
-            response = jsonify(response_data)
-            response.headers['Content-Type'] = 'application/json'
-            return response
-            
-        except Exception as e:
-            app.logger.error(f"[AutoPipeline] Failed: {str(e)}", exc_info=True)
-            response = jsonify({
-                "success": False,
-                "error": str(e)
             })
-            response.headers['Content-Type'] = 'application/json'
-            return response, 500
-    
+
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc()) # Log the full error to your terminal
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route('/api/pipeline/finalize', methods=['POST'])
+    def finalize_pipeline():
+        if not current_pipeline["state"]:
+            return jsonify({"success": False, "error": "No active pipeline to finalize"}), 400
+        
+        try:
+            from ..crew import CodeGenerationCrew
+            crew = CodeGenerationCrew(auto_mode=False)
+            crew.current_pipeline = current_pipeline["state"]
+            crew.current_spec = current_pipeline["state"].spec
+            crew.orchestrator = orchestrator
+            
+            # This adds README.md, requirements.txt, etc.
+            crew._add_project_structure_files()
+            
+            return jsonify({
+                "success": True, 
+                "artifacts_count": len(current_pipeline["state"].artifacts)
+            })
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
     # ============== WebSocket Events ==============
     
     @socketio.on('connect')

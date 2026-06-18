@@ -2283,7 +2283,7 @@ The server rejected the request because the HTTP method is not allowed for this 
                 const result = await safeJsonParse(response);
                 if (result.success) {
                     addEvent(`✅ Pipeline finalized: ${result.artifacts_count} total artifacts`, 'success');
-                    await loadPipelineStatus();
+                    await refreshDashboard();
                 } else {
                     addEvent(`⚠️ Finalization had issues: ${result.error}`, 'warning');
                 }

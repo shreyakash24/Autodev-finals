@@ -272,7 +272,6 @@ class MonitoringAgent:
             "checkpoint_name": checkpoint.name
         })
         
-        # In a real implementation, this would restore actual state
         self.emit_event(EventType.ROLLBACK_COMPLETED, {
             "checkpoint_id": checkpoint_id,
             "restored_at": datetime.now().isoformat()
