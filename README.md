@@ -79,14 +79,14 @@ A CrewAI-based multi-agent system for generating working code and testing with a
    - Generates E2E tests with Playwright
    - Produces pass/fail reports with coverage
 
-5. **Legacy Analysis Agent** *(Now runs automatically!)*
+5. **Legacy Analysis Agent**
    - Scans legacy repositories
    - Infers tech stack and architecture
    - Proposes integration strategies
    - Generates migration plans
    - **Auto-detects and applies legacy conventions to new code**
 
-6. **Prompt Refinement Engine** *(Now runs automatically!)*
+6. **Prompt Refinement Engine**
    - Detects hallucinations and ambiguity
    - Iteratively improves prompts
    - Feeds learnings back to Coordinator
